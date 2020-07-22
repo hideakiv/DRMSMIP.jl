@@ -42,7 +42,7 @@ end
 
 Tree(ξ::Vector{Float64}, set::AbstractAmbiguitySet, cost::Vector{Float64}) = Tree([TreeNode(0, Vector{Int}(), 1, ξ, set, cost )], 1)
 
-function addchild!(tree::Tree, id::Int, ξ::Vector{Float64}, set::AbstractAmbiguitySet, cost::Vector{Float64})
+function addchild!(tree::Tree, id::Int, ξ::Vector{Float64}, set::Union{AbstractAmbiguitySet, Nothing}, cost::Vector{Float64})
     #   adds child node to tree.nodes[id]
     1 <= id <= length(tree.nodes) || throw(BoundsError(tree, id))   # check if id is valid
     k = get_stage(tree, id) + 1                                     # get new stage value

@@ -1,4 +1,4 @@
-using JuMP, Gurobi
+using JuMP, Ipopt, Gurobi
 using DRMSMIP
 using DualDecomposition
 using Random
@@ -27,7 +27,7 @@ In each node, we have Np=10 samples from a log-normal distribution
 function create_tree(K::Int, L::Int, Np::Int)::DRMSMIP.Tree
     π = ones(L)
     π_samp = generate_sample(L, π, Np)
-    set = DRMSMIP.WassersteinSet(π_samp, 1)
+    set = DRMSMIP.WassersteinSet(π_samp, 1.0)
     cost = zeros(L+1)
     tree = DRMSMIP.Tree(π, set, cost)
     add_nodes!(K, L, tree, 1, 1, Np)
@@ -55,24 +55,24 @@ function add_nodes!(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int, k::Int, Np::Int
         ls = iterlist(L,tree.nodes[id].ξ)
         for π in ls
             π_samp = generate_sample(L, π, Np)
-            set = DRMSMIP.WassersteinSet(π_samp, 1)
+            set = DRMSMIP.WassersteinSet(π_samp, 1.0)
             cost = zeros(L+1)
             DRMSMIP.addchild!(tree, id, π, set, cost)
             childid = length(tree.nodes)
             add_nodes!(K, L, tree, childid, k+1, Np)
         end
     elseif k == K-1
-        ls = iterlist(L,tree.nodes[id].scenario)
+        ls = iterlist(L,tree.nodes[id].ξ)
         for π in ls
             cost = vcat(π, [1])
-            DRMSMIP.addchild!(tree, id, k+1, π, nothing, cost)
+            DRMSMIP.addchild!(tree, id, π, nothing, cost)
         end
     end
 end
 
-function iterlist(L::Int, π::Array{Float64})::Array{Float64, 2}
+function iterlist(L::Int, π::Array{Float64})::Array{Array{Float64}}
     # generates all combinations of up and down scenarios
-    ls = Array{Float64, 2}(undef, 2^L, L)
+    ls = [Float64[] for _ in 1:2^L]
     ii = 1
 
     function foo(L::Int, l::Int, arr::Vector{Float64})
@@ -167,7 +167,7 @@ end
 tree = create_tree(K,L,Np)
 
 # Create DualDecomposition instance.
-algo = DD.LagrangeDual()
+algo = DRMSMIP.DRMS_LagrangeDual(tree)
 
 # Add Lagrange dual problem for each scenario s.
 nodes = DRMSMIP.get_stage_id(tree)
@@ -206,4 +206,4 @@ DD.set_coupling_variables!(algo, coupling_variables)
 
 
 # Solve the problem with the solver; this solver is for the underlying bundle method.
-DD.run!(algo, optimizer_with_attributes(Gurobi.Optimizer, "print_level" => 0))
+DD.run!(algo, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
