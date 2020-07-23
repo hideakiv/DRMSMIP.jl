@@ -1,4 +1,5 @@
 Manifest.toml
 .DS_Store
-.log
-.lp
+*.log
+*.lp
+investment_results

@@ -182,11 +182,20 @@ function norm_L1(x::Array{Float64}, y::Array{Float64})::Float64
 end
 
 
-function main_dd()
+function main_comp()
     tree = create_tree(K,L,Np)
 
+    #DEmodel = det_eq(L, tree)
+    #det_eq_results(tree, DEmodel)
+
+    LD = dual_decomp(L, tree)
+    dual_decomp_results(tree, LD)
+end
+
+
+function dual_decomp(L::Int, tree::DRMSMIP.Tree)
     # Create DualDecomposition instance.
-    algo = DRMSMIP.DRMS_LagrangeDual(tree)
+    algo = DRMSMIP.DRMS_LagrangeDual(tree, BM.TrustRegionMethod)
 
     # Add Lagrange dual problem for each scenario s.
     nodes = DRMSMIP.get_stage_id(tree)
@@ -202,9 +211,9 @@ function main_dd()
             leaves = DRMSMIP.get_future(tree, root)
             for id in leaves
                 model = models[id]
-                xref = model[:x]
+                yref = model[:y]
                 for l in 1:L
-                    push!(coupling_variables, DD.CouplingVariableRef(leafdict[id], [root, l], xref[k, l]))
+                    push!(coupling_variables, DD.CouplingVariableRef(leafdict[id], [root, l], yref[k, l]))
                 end
                 Bref = model[:B]
                 push!(coupling_variables, DD.CouplingVariableRef(leafdict[id], [root, L+1], Bref[k]))
@@ -227,14 +236,21 @@ function main_dd()
 
 
     # Solve the problem with the solver; this solver is for the underlying bundle method.
-    #DD.run!(algo, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
+    DD.run!(algo, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
+    return algo
+end
 
+function dual_decomp_results(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
 
-    DeterministicEq(L, tree)
+    #open("examples/investment_results/dual_decomposition.lp", "w") do f
+    #    print(f, BM.get_jump_model(LD.bundle_method))
+    #end
+    print(LD.block_model.dual_bound)
+    print(LD.block_model.dual_solution)
 end
 
 
-function DeterministicEq(L::Int, tree::DRMSMIP.Tree)
+function det_eq(L::Int, tree::DRMSMIP.Tree)
     m = Model(Gurobi.Optimizer) 
     lenN = length(tree.nodes)
     node = tree.nodes[1]
@@ -244,7 +260,7 @@ function DeterministicEq(L::Int, tree::DRMSMIP.Tree)
     @variable(m, α[1:lenN]>=0)
     @variable(m, β[1:lenN,1:node.set.N])
 
-    @objective(m, Min, sum( node.cost[l]*x[1,l] for l in 1:L) + node.cost[L+1]*B[1]
+    @objective(m, Min, sum( node.cost[l]*y[1,l] for l in 1:L) + node.cost[L+1]*B[1]
          + node.set.ϵ*α[1] + sum( node.set.samples[ss].p*β[1,ss] for ss in 1:node.set.N) )
 
     π = tree.nodes[1].ξ
@@ -289,10 +305,42 @@ function DeterministicEq(L::Int, tree::DRMSMIP.Tree)
     end
     iterate_children(1)
     JuMP.optimize!(m)
-    open("model.lp", "w") do f
-        print(f, m)
+    return m
+end
+
+function det_eq_results(tree::DRMSMIP.Tree, model::Model)
+    open("examples/investment_results/det_eq.lp", "w") do f
+        print(f, model)
     end
-    println(value.(m[:x]))
-    println(value.(m[:B]))
-    println(value.(m[:y]))
+    nodes = DRMSMIP.get_stage_id(tree)
+    
+    xref = value.(model[:x])
+    Bref = value.(model[:B])
+    yref = value.(model[:y])
+    αref = value.(model[:α])
+    βref = value.(model[:β])
+
+    open("examples/investment_results/det_eq_results.csv", "w") do io
+        
+        for leaf in nodes[K]
+            
+            hist = DRMSMIP.get_history(tree, leaf)
+            write(io, "stage, ") + sum(write(io, "$(k), ") for k in 1:K) + write(io, "\n")
+            write(io, "B, ") + sum(write(io, string(Bref[id])*", ") for id in hist) + write(io, "\n")
+            for l in 1:L
+                write(io, "π[$(l)], ") + sum(write(io, string(tree.nodes[id].ξ[l])*", ") for id in hist) + write(io, "\n")
+                write(io, "x[$(l)], ") + sum(write(io, string(xref[id,l])*", ") for id in hist) + write(io, "\n")
+                write(io, "y[$(l)], ") + sum(write(io, string(yref[id,l])*", ") for id in hist) + write(io, "\n")
+            end
+
+            tot = 0
+            for id in hist
+                tot += sum( tree.nodes[id].cost[l]*yref[id,l] for l in 1:L) + tree.nodes[id].cost[L+1]*Bref[id]
+            end
+            write(io, "total, " * string(-tot) * "\n")
+            write(io, "\n")
+        end
+        write(io, "objective, "*string(-objective_value(model)))
+    end;
+
 end
