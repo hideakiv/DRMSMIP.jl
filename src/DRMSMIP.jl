@@ -21,7 +21,8 @@ struct WassersteinSet <: AbstractAmbiguitySet
     samples::Array{Sample}  # empirical distribution
     N::Int                  # number of distinct samples
     ϵ::Float64              # radius of Wasserstein Ball
-    WassersteinSet(samples::Array{Sample}, ϵ::Float64) = new(samples, length(samples), ϵ)
+    norm_func::Function     # function that determines the norm
+    WassersteinSet(samples::Array{Sample}, ϵ::Float64, norm_func::Function) = new(samples, length(samples), ϵ, norm_func)
 end
 
 """
@@ -40,9 +41,11 @@ mutable struct Tree
     K::Int                      # length of tree
 end
 
-Tree(ξ::Vector{Float64}, set::AbstractAmbiguitySet, cost::Vector{Float64}) = Tree([TreeNode(0, Vector{Int}(), 1, ξ, set, cost )], 1)
+Tree(ξ::Vector{Float64}, set::AbstractAmbiguitySet, cost::Vector{Float64}) = 
+    Tree([TreeNode(0, Vector{Int}(), 1, ξ, set, cost )], 1)
 
-function addchild!(tree::Tree, id::Int, ξ::Vector{Float64}, set::Union{AbstractAmbiguitySet, Nothing}, cost::Vector{Float64})
+function addchild!(tree::Tree, id::Int, ξ::Vector{Float64},
+             set::Union{AbstractAmbiguitySet, Nothing}, cost::Vector{Float64})
     #   adds child node to tree.nodes[id]
     1 <= id <= length(tree.nodes) || throw(BoundsError(tree, id))   # check if id is valid
     k = get_stage(tree, id) + 1                                     # get new stage value

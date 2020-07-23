@@ -35,7 +35,7 @@ mutable struct DRMS_LagrangeDual{T<:BM.AbstractMethod} <: DD.AbstractLagrangeDua
     end
 end
 
-function add_constraints!(LD::DRMS_LagrangeDual, method::BM.AbstractMethod)
+function DD.add_constraints!(LD::DRMS_LagrangeDual, method::BM.AbstractMethod)
     model = BM.get_jump_model(method)
     #λ = model[:x]
     #for (id, vars) in LD.block_model.variables_by_couple
@@ -59,11 +59,16 @@ function add_Wasserstein!(LD::DRMS_LagrangeDual, model::JuMP.Model)
         end
     end
     """
+    @variable(model, P[k=2:K, id=nodes[k]] >= 0)
+    """
     for k in 2:K
         for id in nodes[k]
             @variable(model, P[k, id] >= 0)
         end
     end
+    """
+    @variable(model, w[k=1:K-1, id=nodes[k+1], s=1:LD.tree.nodes[get_parent(LD.tree,id)].set.N] >= 0)
+    """
     for k in 1:K-1
         for id in nodes[k+1]
             Np = LD.tree.nodes[get_parent(LD.tree,id)].set.N
@@ -72,20 +77,13 @@ function add_Wasserstein!(LD::DRMS_LagrangeDual, model::JuMP.Model)
             end
         end
     end
+    """
     
     con_X!(LD.tree, model, nodes, K, LD)
     con_E!(LD.tree, model, nodes, K)
     con_P!(LD.tree, model, nodes, K)
     con_M!(LD.tree, model, nodes, K)
     con_N!(LD.tree, model, nodes, K)
-end
-
-function norm_L1(x::Array{Number}, y::Array{Number})::Float64
-    val = 0
-    for i in 1:length(x)
-        val += abs(x[i] - y[i])
-    end
-    return val
 end
 
 function con_X!(tree::Tree, m::Model, nodes::Array{Array{Int}}, K::Int, LD::DRMS_LagrangeDual)
@@ -125,7 +123,7 @@ function con_E!(tree::Tree, m::Model, nodes::Array{Array{Int}}, K::Int)
     rootnode = tree.nodes[1]
     Np = rootnode.set.N
     con_e = @constraint(m,
-        sum( sum( w[1, id, s] * norm_L1(tree.nodes[id].ξ, rootnode.set.samples[s].ξ) for s in 1:Np) for id in rootnode.children) 
+        sum( sum( w[1, id, s] * rootnode.set.norm_func(tree.nodes[id].ξ, rootnode.set.samples[s].ξ) for s in 1:Np) for id in rootnode.children) 
         <= rootnode.set.ϵ)
     set_name(con_e, "con_e[1,1]")
 
@@ -134,7 +132,7 @@ function con_E!(tree::Tree, m::Model, nodes::Array{Array{Int}}, K::Int)
             rootnode = tree.nodes[root]
             Np = rootnode.set.N
             con_e = @constraint(m,
-                sum( sum( w[k, id, s] * norm_L1(tree.nodes[id].ξ, rootnode.set.samples[s].ξ) for s in 1:Np) for id in rootnode.children) 
+                sum( sum( w[k, id, s] * rootnode.set.norm_func(tree.nodes[id].ξ, rootnode.set.samples[s].ξ) for s in 1:Np) for id in rootnode.children) 
                 - rootnode.set.ϵ * P[k, root] <= 0)
             set_name(con_e, "con_e[$(k),$(root)]")
         end
