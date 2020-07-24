@@ -37,56 +37,19 @@ end
 
 function DD.add_constraints!(LD::DRMS_LagrangeDual, method::BM.AbstractMethod)
     model = BM.get_jump_model(method)
-    λ = model[:x]
-    for (id, vars) in LD.block_model.variables_by_couple
-        if length(vars) > 1
-            @constraint(model, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == 0)
-        end
-    end
-    n = method.model.n
-    add_Wasserstein!(LD, model, n)
+
+    add_Wasserstein!(LD, model)
     open("examples/investment_results/dual_decomposition.lp", "w") do f
         print(f, model)
     end
 end
 
-function add_Wasserstein!(LD::DRMS_LagrangeDual, model::JuMP.Model, n::Int)
+function add_Wasserstein!(LD::DRMS_LagrangeDual, model::JuMP.Model)
     K = LD.tree.K
     nodes = get_stage_id(LD.tree)
 
-    #@variable(model, μ[k=2:K, id=nodes[K], l=1:length(LD.tree.nodes[id].cost)])
-    @variable(model, μ[1:n])
-    """
-    for leaves in nodes[K]
-        hist = get_history(LD.tree, leaves)
-        for k in 1:K
-            id = hist[k]
-            Nx = length(LD.tree.nodes[id].cost)
-            for l in 1:Nx
-                @variable(model, μ[k, leaves, l])
-            end
-        end
-    end
-    """
     @variable(model, P[k=2:K, id=nodes[k]] >= 0)
-    """
-    for k in 2:K
-        for id in nodes[k]
-            @variable(model, P[k, id] >= 0)
-        end
-    end
-    """
     @variable(model, w[k=1:K-1, id=nodes[k+1], s=1:LD.tree.nodes[get_parent(LD.tree,id)].set.N] >= 0)
-    """
-    for k in 1:K-1
-        for id in nodes[k+1]
-            Np = LD.tree.nodes[get_parent(LD.tree,id)].set.N
-            for s in 1:Np
-                @variable(model, w[k, id, s] >= 0)
-            end
-        end
-    end
-    """
     
     con_X!(LD.tree, model, nodes, K, LD)
     con_E!(LD.tree, model, nodes, K)
@@ -99,19 +62,14 @@ function con_X!(tree::Tree, m::Model, nodes::Array{Array{Int}}, K::Int, LD::DRMS
     #   Lagrangian dual of nonanticipativity of x
     λ = m[:x]
     P = m[:P]
-    μ = m[:μ]
-
 
     c = tree.nodes[1].cost
     Nx = length(c)
 
     for ix in 1:Nx
         vars = LD.block_model.variables_by_couple[[1, ix]]
-        #con_x = @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == c[ix])
-        #set_name(con_x, "con_x[1,1,$(ix)]")
-        for v in vars
-            @constraint(m, μ[DD.index_of_λ(LD, v)] - λ[DD.index_of_λ(LD, v)] == c[ix] / length(vars))
-        end
+        con_x = @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == c[ix])
+        set_name(con_x, "con_x[1,1,$(ix)]")
     end
 
     for k = 2:K
@@ -120,12 +78,9 @@ function con_X!(tree::Tree, m::Model, nodes::Array{Array{Int}}, K::Int, LD::DRMS
             Nx = length(c)
             for ix in 1:Nx
                 vars = LD.block_model.variables_by_couple[[root, ix]]
-                #con_x = @constraint(m,
-                #    sum(λ[DD.index_of_λ(LD, v)] for v in vars) - c[ix] * P[k, root] == 0)
-                #set_name(con_x, "con_x[$(k),$(root),$(ix)]")
-                for v in vars
-                    @constraint(m, μ[DD.index_of_λ(LD, v)] - λ[DD.index_of_λ(LD, v)] - c[ix] * P[k, root] / length(vars) == 0)
-                end
+                con_x = @constraint(m,
+                    sum(λ[DD.index_of_λ(LD, v)] for v in vars) - c[ix] * P[k, root] == 0)
+                set_name(con_x, "con_x[$(k),$(root),$(ix)]")
             end
         end
     end

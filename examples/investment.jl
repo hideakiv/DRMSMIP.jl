@@ -234,10 +234,24 @@ function dual_decomp(L::Int, tree::DRMSMIP.Tree)
     # Set nonanticipativity variables as an array of symbols.
     DD.set_coupling_variables!(algo, coupling_variables)
 
+    bundle_init = initialize_bundle(tree, algo)
 
     # Solve the problem with the solver; this solver is for the underlying bundle method.
-    DD.run!(algo, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
+    DD.run!(algo, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0), bundle_init)
     return algo
+end
+
+function initialize_bundle(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)::Array{Float64,1}
+    n = DD.num_coupling_variables(LD.block_model)
+    bundle_init = Array{Float64,1}(undef, n)
+    for i in 1:n
+        key = LD.block_model.coupling_variables[i].key
+        N = length(LD.block_model.variables_by_couple[key.coupling_id])
+        node_id = key.coupling_id[1]
+        l = key.coupling_id[2]
+        bundle_init[i] =  tree.nodes[node_id].cost[l] / N
+    end
+    return bundle_init
 end
 
 function dual_decomp_results(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
