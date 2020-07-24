@@ -198,16 +198,16 @@ function dual_decomp(L::Int, tree::DRMSMIP.Tree)
     algo = DRMSMIP.DRMS_LagrangeDual(tree, BM.TrustRegionMethod)
 
     # Add Lagrange dual problem for each scenario s.
-    nodes = DRMSMIP.get_stage_id(tree)
-    leafdict = leaf2block(nodes[K])
-    models = Dict{Int,JuMP.Model}(id => create_scenario_model(K,L,tree,id) for id in nodes[K])
-    for id in nodes[K]
+    nodelist = DRMSMIP.get_stage_id(tree)
+    leafdict = leaf2block(nodelist[K])
+    models = Dict{Int,JuMP.Model}(id => create_scenario_model(K,L,tree,id) for id in nodelist[K])
+    for id in nodelist[K]
         DD.add_block_model!(algo, leafdict[id], models[id])
     end
 
     coupling_variables = Vector{DD.CouplingVariableRef}()
     for k in 1:K-1
-        for root in nodes[k]
+        for root in nodelist[k]
             leaves = DRMSMIP.get_future(tree, root)
             for id in leaves
                 model = models[id]
@@ -221,7 +221,7 @@ function dual_decomp(L::Int, tree::DRMSMIP.Tree)
         end
     end
     # dummy coupling variables
-    for id in nodes[K]
+    for id in nodelist[K]
         model = models[id]
         xref = model[:x]
         for l in 1:L
@@ -256,11 +256,45 @@ end
 
 function dual_decomp_results(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
 
-    #open("examples/investment_results/dual_decomposition.lp", "w") do f
-    #    print(f, BM.get_jump_model(LD.bundle_method))
-    #end
-    print(LD.block_model.dual_bound)
-    print(LD.block_model.dual_solution)
+    #print(LD.block_model.dual_bound)
+    #print(LD.block_model.dual_solution)
+
+    nodelist = DRMSMIP.get_stage_id(tree)
+    
+    open("examples/investment_results/dual_decomp_results.csv", "w") do io
+        Pref = LD.block_model.P_solution
+        lb = 0      # objective of feasible solution
+        for s in 1:length(nodelist[K])
+            m = LD.block_model.model[s]
+            leaf = nodelist[K][s]
+
+            xref = value.(m[:x])
+            Bref = value.(m[:B])
+            yref = value.(m[:y])
+            
+            hist = DRMSMIP.get_history(tree, leaf)
+            write(io, "stage, ") + sum(write(io, "$(k), ") for k in 1:K) + write(io, "\n")
+            write(io, "scenario, ") + sum(write(io, string(hist[k])*", ") for k in 1:K) + write(io, "\n")
+            write(io, "B, ") + sum(write(io, string(Bref[k])*", ") for k in 1:K) + write(io, "\n")
+            for l in 1:L
+                write(io, "π[$(l)], ") + sum(write(io, string(tree.nodes[id].ξ[l])*", ") for id in hist) + write(io, "\n")
+                write(io, "x[$(l)], ") + sum(write(io, string(xref[k,l])*", ") for k in 1:K) + write(io, "\n")
+                write(io, "y[$(l)], ") + sum(write(io, string(yref[k,l])*", ") for k in 1:K) + write(io, "\n")
+            end
+            write(io, "P, , ") + sum(write(io, string(Pref[hist[k]])*", ") for k in 2:K) + write(io, "\n")
+
+            tot = 0
+            for k in 1:K
+                tot += sum( tree.nodes[hist[k]].cost[l]*yref[k,l] for l in 1:L) + tree.nodes[hist[k]].cost[L+1]*Bref[k]
+            end
+            write(io, "total, " * string(-tot) * "\n")
+            write(io, "\n")
+            lb += -tot * Pref[hist[K]]
+        end
+        write(io, "upper bound, "*string(-LD.block_model.dual_bound)* "\n")
+        write(io, "lower bound, "*string(lb)* "\n")
+    end
+
 end
 
 
@@ -326,7 +360,7 @@ function det_eq_results(tree::DRMSMIP.Tree, model::Model)
     open("examples/investment_results/det_eq.lp", "w") do f
         print(f, model)
     end
-    nodes = DRMSMIP.get_stage_id(tree)
+    nodelist = DRMSMIP.get_stage_id(tree)
     
     xref = value.(model[:x])
     Bref = value.(model[:B])
@@ -336,7 +370,7 @@ function det_eq_results(tree::DRMSMIP.Tree, model::Model)
 
     open("examples/investment_results/det_eq_results.csv", "w") do io
         
-        for leaf in nodes[K]
+        for leaf in nodelist[K]
             
             hist = DRMSMIP.get_history(tree, leaf)
             write(io, "stage, ") + sum(write(io, "$(k), ") for k in 1:K) + write(io, "\n")
@@ -355,6 +389,6 @@ function det_eq_results(tree::DRMSMIP.Tree, model::Model)
             write(io, "\n")
         end
         write(io, "objective, "*string(-objective_value(model)))
-    end;
+    end
 
 end

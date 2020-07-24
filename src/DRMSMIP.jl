@@ -107,21 +107,7 @@ function get_stage_id(tree::Tree)::Array{Array{Int}}
     return nodelist
 end
 
+include("BlockModel.jl")
 include("LagrangeDual.jl")
-
-"""
-function apply!(model, set::AbstractAmbiguitySet) end
-
-function apply!(model, set::WassersteinSet)
-    # add variables
-    # add constraints
-end
-
-mutable struct BundleProblem
-    objective_functions # has a pointer to your function
-    constraints
-    params::Parameter
-end
-"""
 
 end
