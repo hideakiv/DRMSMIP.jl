@@ -25,9 +25,9 @@ asset2: 1.06 or 0.94
 
 function create_tree(K::Int, L::Int, Np::Int)::DRMSMIP.Tree
     π = ones(L)
-    π_samp = generate_sample(L, π, Np)#igonre this
-    set = DRMSMIP.WassersteinSet(π_samp, 0.0, norm_L1)#ignore this
-    cost = zeros(L+1)
+    π_samp = generate_sample(L, π, Np)                  #igonre this for stochastic problem
+    set = DRMSMIP.WassersteinSet(π_samp, 0.0, norm_L1)  #ignore this for stochastic problem
+    cost = zeros(L+1)                                   #ignore this for stochastic problem
     tree = DRMSMIP.Tree(π, set, cost)
     add_nodes!(K, L, tree, 1, 1, Np)
     return tree
@@ -159,9 +159,8 @@ function create_scenario_model(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int)
     for l in 1:L
         @constraint(m, x[K,l]==0)
     end
-    #π = tree.nodes[id].ξ
-    #@objective(m, Max, B[K] + sum( π[l] * x[K,l] for l in 1:L )
-    @objective(m, Min, sum( sum(tree.nodes[hist[k]].cost[l] * y[k,l] for l in 1:L) + tree.nodes[hist[k]].cost[L+1] * B[k] for k in 1:K )/(2^L)^(K-1) )
+    π = tree.nodes[id].ξ
+    @objective(m, Min, - (B[K] + sum( π[l] * y[K,l] for l in 1:L ))/(2^L)^(K-1) )
     return m
 end
 
@@ -172,15 +171,6 @@ function leaf2block(nodes::Array{Int})::Dict{Int,Int}
         leafdict[id] = i
     end
     return leafdict
-end
-
-
-function norm_L1(x::Array{Float64}, y::Array{Float64})::Float64
-    val = 0
-    for i in 1:length(x)
-        val += abs(x[i] - y[i])
-    end
-    return val
 end
 
 
@@ -332,8 +322,8 @@ function non_anticipative(L::Int, tree::DRMSMIP.Tree)
             set_name(con_na, "con_na[$(k),$(id),$(L+1)]")
         end
     end
-    @objective(m, Min, sum( sum( sum( tree.nodes[id].cost[l] * yp[k,id,l] for l in 1:L)
-         + tree.nodes[id].cost[L+1] * Bp[k,id] for id in nodelist[k] )/length(nodelist[k]) for k in 1:K) )
+    @objective(m, Min, - sum( Bp[K,id] + sum( tree.nodes[id].ξ[l] * yp[K,id,l] for l in 1:L)
+         for id in nodelist[K] )/ length(nodelist[K]) )
     JuMP.optimize!(m)
     return m
 end
@@ -361,11 +351,11 @@ function non_anticipative_results(tree::DRMSMIP.Tree, model::Model)
                 write(io, "y[$(l)], ") + sum(write(io, string(yref[leaf,k,l])*", ") for k in 1:K) + write(io, "\n")
             end
 
-            tot = 0
-            for k in 1:K
-                id = hist[k]
-                tot += sum( tree.nodes[id].cost[l]*yref[leaf,k,l] for l in 1:L) + tree.nodes[id].cost[L+1]*Bref[leaf,k]
-            end
+            tot = - Bref[leaf,K] - sum( tree.nodes[leaf].ξ[l]*yref[leaf,K,l] for l in 1:L)
+            #for k in 1:K
+            #    id = hist[k]
+            #    tot += sum( tree.nodes[id].cost[l]*yref[leaf,k,l] for l in 1:L) + tree.nodes[id].cost[L+1]*Bref[leaf,k]
+            #end
             write(io, "total, " * string(-tot) * "\n")
             write(io, "\n")
             avg += tot
