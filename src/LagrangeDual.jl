@@ -50,9 +50,6 @@ function DD.add_constraints!(LD::DRMS_LagrangeDual, method::BM.AbstractMethod)
     model = BM.get_jump_model(method)
 
     add_Wasserstein!(LD, model)
-    open("examples/investment_results/dual_decomp.lp", "w") do f
-        print(f, model)
-    end
 end
 
 function add_Wasserstein!(LD::DRMS_LagrangeDual, model::JuMP.Model)

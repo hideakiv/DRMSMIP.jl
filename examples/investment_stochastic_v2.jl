@@ -27,7 +27,7 @@ In each node, we have Np=10 samples from a log-normal distribution
 function create_tree(K::Int, L::Int, Np::Int)::DRMSMIP.Tree
     π = ones(L)
     π_samp = generate_sample(L, π, Np)
-    set = DRMSMIP.WassersteinSet(π_samp, 1.0, norm_L1)
+    set = DRMSMIP.WassersteinSet(π_samp, 0.0, norm_L1)
     cost = zeros(L+1)
     tree = DRMSMIP.Tree(π, set, cost)
     add_nodes!(K, L, tree, 1, 1, Np)
@@ -37,15 +37,14 @@ end
 
 function generate_sample(L::Int, π::Array{Float64}, Np::Int)::Array{DRMSMIP.Sample}
     # generates random samples following a lognormal distribution
-    ret = Array{DRMSMIP.Sample}(undef, Np)
-    for ii in 1:Np
+    ret = Array{DRMSMIP.Sample}(undef, 2^L)
+    ls = iterlist(L, π)
+    for ii in 1:2^L
         ξ = Array{Float64}(undef, L)
         for l in 1:L
-            sig = sqrt( log( 0.5+sqrt( ( 0.03*l )^2+0.25 ) ) )
-            rnd = sig * randn(rng) .+ log(π[l])
-            ξ[l] = exp(rnd)
+            ξ[l] = ls[ii][l]
         end
-        ret[ii] = DRMSMIP.Sample(ξ, 1/Np)
+        ret[ii] = DRMSMIP.Sample(ξ, 1/(2^L))
     end
     return ret
 end
@@ -55,7 +54,7 @@ function add_nodes!(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int, k::Int, Np::Int
         ls = iterlist(L,tree.nodes[id].ξ)
         for π in ls
             π_samp = generate_sample(L, π, Np)
-            set = DRMSMIP.WassersteinSet(π_samp, 1.0, norm_L1)
+            set = DRMSMIP.WassersteinSet(π_samp, 0.0, norm_L1)
             cost = zeros(L+1)
             DRMSMIP.addchild!(tree, id, π, set, cost)
             childid = length(tree.nodes)
@@ -158,13 +157,12 @@ function create_scenario_model(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int)
             set_name(bal, "bal[$(k),$(l)]")
         end
     end
-
     for l in 1:L
         @constraint(m, x[K,l]==0)
     end
     #π = tree.nodes[id].ξ
     #@objective(m, Max, B[K] + sum( π[l] * x[K,l] for l in 1:L )
-    @objective(m, Min, 0 )
+    @objective(m, Min, sum( sum(tree.nodes[hist[k]].cost[l] * y[k,l] for l in 1:L) + tree.nodes[hist[k]].cost[L+1] * B[k] for k in 1:K )/(2^L)^(K-1) )
     return m
 end
 
@@ -190,17 +188,16 @@ end
 function main_comp()
     tree = create_tree(K,L,Np)
 
-    DEmodel = det_eq(L, tree)
-    det_eq_results(tree, DEmodel)
-
     LD = dual_decomp(L, tree)
-    dual_decomp_results(tree, LD)
+
+    #NAmodel = non_anticipative(L,tree)
+    #non_anticipative_results(tree,NAmodel)
 end
 
 
 function dual_decomp(L::Int, tree::DRMSMIP.Tree)
     # Create DualDecomposition instance.
-    algo = DRMSMIP.DRMS_LagrangeDual(tree, BM.TrustRegionMethod)
+    algo = DD.LagrangeDual(BM.TrustRegionMethod)
 
     # Add Lagrange dual problem for each scenario s.
     nodelist = DRMSMIP.get_stage_id(tree)
@@ -239,137 +236,111 @@ function dual_decomp(L::Int, tree::DRMSMIP.Tree)
     # Set nonanticipativity variables as an array of symbols.
     DD.set_coupling_variables!(algo, coupling_variables)
 
-    bundle_init = initialize_bundle(tree, algo)
-
     # Solve the problem with the solver; this solver is for the underlying bundle method.
-    DD.run!(algo, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0), bundle_init)
+    DD.run!(algo, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
     return algo
 end
 
-function initialize_bundle(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)::Array{Float64,1}
+function interpret_solution(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual, sol::Array{Float64,1})
     n = DD.num_coupling_variables(LD.block_model)
-    bundle_init = Array{Float64,1}(undef, n)
+    #sol = LD.block_model.dual_solution
+    nodelist = DRMSMIP.get_stage_id(tree)
+    solret = Dict()
     for i in 1:n
         key = LD.block_model.coupling_variables[i].key
-        N = length(LD.block_model.variables_by_couple[key.coupling_id])
-        node_id = key.coupling_id[1]
+        sce = key.block_id
+        root_id = key.coupling_id[1]
         l = key.coupling_id[2]
-        bundle_init[i] =  tree.nodes[node_id].cost[l] / N
+        k = tree.nodes[root_id].k
+        solret[k,nodelist[K][sce],l] = sol[i]
     end
-    return bundle_init
+    return solret
 end
 
-function dual_decomp_results(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
-
-    #print(LD.block_model.dual_bound)
-    #print(LD.block_model.dual_solution)
-
+function convert_lp(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
+    input = "examples/investment_stochastic_results_v2/dual_decomp.lp"
+    lines = readlines(input)
+    output = "examples/investment_stochastic_results_v2/dual_decomp_v2.lp"
     nodelist = DRMSMIP.get_stage_id(tree)
-    
-    open("examples/investment_results/dual_decomp_results.csv", "w") do io
-        Pref = LD.block_model.P_solution
-        lb = 0      # objective of feasible solution
-        for s in 1:length(nodelist[K])
-            m = LD.block_model.model[s]
-            leaf = nodelist[K][s]
-
-            xref = value.(m[:x])
-            Bref = value.(m[:B])
-            yref = value.(m[:y])
-            
-            hist = DRMSMIP.get_history(tree, leaf)
-            write(io, "stage, ") + sum(write(io, "$(k), ") for k in 1:K) + write(io, "\n")
-            write(io, "scenario, ") + sum(write(io, string(hist[k])*", ") for k in 1:K) + write(io, "\n")
-            write(io, "B, ") + sum(write(io, string(Bref[k])*", ") for k in 1:K) + write(io, "\n")
-            for l in 1:L
-                write(io, "π[$(l)], ") + sum(write(io, string(tree.nodes[id].ξ[l])*", ") for id in hist) + write(io, "\n")
-                write(io, "x[$(l)], ") + sum(write(io, string(xref[k,l])*", ") for k in 1:K) + write(io, "\n")
-                write(io, "y[$(l)], ") + sum(write(io, string(yref[k,l])*", ") for k in 1:K) + write(io, "\n")
+    open(output, "w") do io
+        for line in lines
+            foo = split(line)
+            for i in 1:length(foo)
+                elem = foo[i]
+                if elem[1] == 'x'
+                    num = parse(Int,elem[3:end-1])
+                    key = LD.block_model.coupling_variables[num].key
+                    sce = key.block_id
+                    root_id = key.coupling_id[1]
+                    l = key.coupling_id[2]
+                    k = tree.nodes[root_id].k
+                    foo[i] = "x[$(k),$(nodelist[K][sce]),$(l)]"
+                end
             end
-            write(io, "P, , ") + sum(write(io, string(Pref[hist[k]])*", ") for k in 2:K) + write(io, "\n")
-
-            tot = 0
-            for k in 1:K
-                tot += sum( tree.nodes[hist[k]].cost[l]*yref[k,l] for l in 1:L) + tree.nodes[hist[k]].cost[L+1]*Bref[k]
-            end
-            write(io, "total, " * string(-tot) * "\n")
-            write(io, "\n")
-            lb += -tot * Pref[hist[K]]
+            ret = join(foo, " ")
+            write(io, ret*"\n")
         end
-        write(io, "upper bound, "*string(-LD.block_model.dual_bound)* "\n")
-        write(io, "lower bound, "*string(lb)* "\n")
     end
-
 end
 
 
-function det_eq(L::Int, tree::DRMSMIP.Tree)
+
+
+function non_anticipative(L::Int, tree::DRMSMIP.Tree)
+    nodelist = DRMSMIP.get_stage_id(tree)
     m = Model(Gurobi.Optimizer) 
-    lenN = length(tree.nodes)
-    node = tree.nodes[1]
-    #@variable(m, x[1:lenN,1:L], integer=true)
-    @variable(m, x[1:lenN,1:L])
-    @variable(m, y[1:lenN,1:L]>=0)
-    @variable(m, B[1:lenN]>=0)
-    @variable(m, α[1:lenN]>=0)
-    @variable(m, β[1:lenN,1:node.set.N])
+    set_optimizer_attribute(m, "OutputFlag", 0)
 
-    @objective(m, Min, sum( node.cost[l]*y[1,l] for l in 1:L) + node.cost[L+1]*B[1]
-         + node.set.ϵ*α[1] + sum( node.set.samples[ss].p*β[1,ss] for ss in 1:node.set.N) )
+    #@variable(m, x[1:K,1:L], integer=true)
+    @variable(m, x[nodelist[K],1:K,1:L])
+    @variable(m, y[nodelist[K],1:K,1:L]>=0)
+    @variable(m, B[nodelist[K],1:K]>=0)
 
-    π = tree.nodes[1].ξ
-    @constraint(m, B[1] + sum( π[l] * x[1,l] for l in 1:L) == b[1])
-    for l in 1:L
-        @constraint(m, y[1,l]-x[1,l]==0)
-    end
+    @variable(m, yp[k=1:K,nodelist[k],1:L]>=0)
+    @variable(m, Bp[k=1:K,nodelist[k]]>=0)
 
-    function iterate_children(id::Int)
-        pnode = tree.nodes[id]
-        children = DRMSMIP.get_children(tree, id)
-        
-        for child in children
-            cnode = tree.nodes[child]
-
-            π = cnode.ξ
-            ρ = pnode.ξ * 0.05
-
-            @constraint(m, B[child] + sum( π[l] * x[child,l] - ρ[l] * y[id,l] for l in 1:L)
-                - (1+a) * B[id] == b[cnode.k])
-            for l in 1:L
-                @constraint(m, y[child,l]-x[child,l]-y[id,l]==0)
-            end
-
-            if length(DRMSMIP.get_children(tree, child)) > 0
-                for s in 1:pnode.set.N
-                    foo = pnode.set.norm_func(cnode.ξ, pnode.set.samples[s].ξ)
-                    @constraint(m, foo*α[id] + β[id,s]
-                        - sum( cnode.cost[l]*y[child,l] for l in 1:L) - cnode.cost[L+1]*B[child] - cnode.set.ϵ*α[child]
-                        - sum( cnode.set.samples[ss].p*β[child,ss] for ss in 1:cnode.set.N) >= 0)
-                end
-            else
-                for s in 1:pnode.set.N
-                    foo = pnode.set.norm_func(cnode.ξ, pnode.set.samples[s].ξ)
-                    @constraint(m, foo*α[id] + β[id,s]
-                        - sum( cnode.cost[l]*y[child,l] for l in 1:L) - cnode.cost[L+1]*B[child] >= 0)
-                end
-            end
-            iterate_children(child)
-        end
-        
-    end
-    iterate_children(1)
-    nodelist = DRMSMIP.get_stage_id(tree)
     for id in nodelist[K]
+        hist = DRMSMIP.get_history(tree, id)
+
+        π = tree.nodes[1].ξ
+
+        @constraint(m, B[id,1] + sum( π[l] * x[id,1,l] for l in 1:L) == b[1])
+
         for l in 1:L
-            @constraint(m, x[id,l]==0)
+            @constraint(m, y[id,1,l]-x[id,1,l]==0)
+        end
+
+        for k = 2:K
+            π = tree.nodes[hist[k]].ξ
+            ρ = tree.nodes[hist[k-1]].ξ * 0.05
+
+            @constraint(m, B[id,k] + sum( π[l] * x[id,k,l] - ρ[l] * y[id,k-1,l] for l in 1:L)
+                - (1+a) * B[id,k-1] == b[k])
+            for l in 1:L
+                @constraint(m, y[id,k,l]-x[id,k,l]-y[id,k-1,l]==0)
+            end
+        end
+        for l in 1:L
+            @constraint(m, x[id,K,l]==0)
+        end
+        for k = 1:K
+            root = hist[k]
+            for l in 1:L
+                con_na = @constraint(m, y[id,k,l]==yp[k,root,l])
+                set_name(con_na, "con_na[$(k),$(id),$(l)]")
+            end
+            con_na = @constraint(m, B[id,k]==Bp[k,root])
+            set_name(con_na, "con_na[$(k),$(id),$(L+1)]")
         end
     end
+    @objective(m, Min, sum( sum( sum( tree.nodes[id].cost[l] * yp[k,id,l] for l in 1:L)
+         + tree.nodes[id].cost[L+1] * Bp[k,id] for id in nodelist[k] )/length(nodelist[k]) for k in 1:K) )
     JuMP.optimize!(m)
     return m
 end
 
-function det_eq_results(tree::DRMSMIP.Tree, model::Model)
-    open("examples/investment_results/det_eq.lp", "w") do f
+function non_anticipative_results(tree::DRMSMIP.Tree, model::Model)
+    open("examples/investment_stochastic_results_v2/non_anticipative.lp", "w") do f
         print(f, model)
     end
     nodelist = DRMSMIP.get_stage_id(tree)
@@ -377,29 +348,30 @@ function det_eq_results(tree::DRMSMIP.Tree, model::Model)
     xref = value.(model[:x])
     Bref = value.(model[:B])
     yref = value.(model[:y])
-    αref = value.(model[:α])
-    βref = value.(model[:β])
 
-    open("examples/investment_results/det_eq_results.csv", "w") do io
-        
+    open("examples/investment_stochastic_results_v2/non_anticipative_results.csv", "w") do io
+        avg = 0
         for leaf in nodelist[K]
             
             hist = DRMSMIP.get_history(tree, leaf)
             write(io, "stage, ") + sum(write(io, "$(k), ") for k in 1:K) + write(io, "\n")
-            write(io, "B, ") + sum(write(io, string(Bref[id])*", ") for id in hist) + write(io, "\n")
+            write(io, "B, ") + sum(write(io, string(Bref[leaf,k])*", ") for k in 1:K) + write(io, "\n")
             for l in 1:L
                 write(io, "π[$(l)], ") + sum(write(io, string(tree.nodes[id].ξ[l])*", ") for id in hist) + write(io, "\n")
-                write(io, "x[$(l)], ") + sum(write(io, string(xref[id,l])*", ") for id in hist) + write(io, "\n")
-                write(io, "y[$(l)], ") + sum(write(io, string(yref[id,l])*", ") for id in hist) + write(io, "\n")
+                write(io, "x[$(l)], ") + sum(write(io, string(xref[leaf,k,l])*", ") for k in 1:K) + write(io, "\n")
+                write(io, "y[$(l)], ") + sum(write(io, string(yref[leaf,k,l])*", ") for k in 1:K) + write(io, "\n")
             end
 
             tot = 0
-            for id in hist
-                tot += sum( tree.nodes[id].cost[l]*yref[id,l] for l in 1:L) + tree.nodes[id].cost[L+1]*Bref[id]
+            for k in 1:K
+                id = hist[k]
+                tot += sum( tree.nodes[id].cost[l]*yref[leaf,k,l] for l in 1:L) + tree.nodes[id].cost[L+1]*Bref[leaf,k]
             end
             write(io, "total, " * string(-tot) * "\n")
             write(io, "\n")
+            avg += tot
         end
+        write(io,"average, "*string(-avg/length(nodelist[K])) * "\n")
         write(io, "objective, "*string(-objective_value(model)))
     end
 

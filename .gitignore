@@ -3,3 +3,5 @@ Manifest.toml
 *.log
 *.lp
 investment_results
+investment_stochastic_results
+investment_stochastic.jl
