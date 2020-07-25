@@ -21,13 +21,12 @@ bank: interest rate 0.01
 asset1: 1.03 or 0.97
 asset2: 1.06 or 0.94
 
-In each node, we have Np=10 samples from a log-normal distribution
 """
 
 function create_tree(K::Int, L::Int, Np::Int)::DRMSMIP.Tree
     π = ones(L)
-    π_samp = generate_sample(L, π, Np)
-    set = DRMSMIP.WassersteinSet(π_samp, 0.0, norm_L1)
+    π_samp = generate_sample(L, π, Np)#igonre this
+    set = DRMSMIP.WassersteinSet(π_samp, 0.0, norm_L1)#ignore this
     cost = zeros(L+1)
     tree = DRMSMIP.Tree(π, set, cost)
     add_nodes!(K, L, tree, 1, 1, Np)
