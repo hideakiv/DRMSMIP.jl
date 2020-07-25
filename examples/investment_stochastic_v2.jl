@@ -190,8 +190,8 @@ function main_comp()
 
     LD = dual_decomp(L, tree)
 
-    #NAmodel = non_anticipative(L,tree)
-    #non_anticipative_results(tree,NAmodel)
+    NAmodel = non_anticipative(L,tree)
+    non_anticipative_results(tree,NAmodel)
 end
 
 
