@@ -136,24 +136,20 @@ function create_scenario_model(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int)
 
     π = tree.nodes[1].ξ
 
-    con = @constraint(m, B[1] + sum( π[l] * x[1,l] for l in 1:L) == b[1])
-    set_name(con, "con[1]")
+    @constraint(m, B[1] + sum( π[l] * x[1,l] for l in 1:L) == b[1])
 
     for l in 1:L
-        bal = @constraint(m, y[1,l]-x[1,l]==0)
-        set_name(bal, "bal[1,$(l)]")
+        @constraint(m, y[1,l]-x[1,l]==0)
     end
 
     for k = 2:K
         π = tree.nodes[hist[k]].ξ
         ρ = tree.nodes[hist[k-1]].ξ * 0.05
 
-        con = @constraint(m, B[k] + sum( π[l] * x[k,l] - ρ[l] * y[k-1,l] for l in 1:L)
+        @constraint(m, B[k] + sum( π[l] * x[k,l] - ρ[l] * y[k-1,l] for l in 1:L)
             - (1+a) * B[k-1] == b[k])
-        set_name(con, "con[$(k)]")
         for l in 1:L
-            bal = @constraint(m, y[k,l]-x[k,l]-y[k-1,l]==0)
-            set_name(bal, "bal[$(k),$(l)]")
+            @constraint(m, y[k,l]-x[k,l]-y[k-1,l]==0)
         end
     end
     for l in 1:L
@@ -173,12 +169,19 @@ function leaf2block(nodes::Array{Int})::Dict{Int,Int}
     return leafdict
 end
 
+"""
 
+The main computation section
+
+"""
 function main_comp()
+    # generate tree data structure
     tree = create_tree(K,L,Np)
 
+    # compute dual decomposition method
     LD = dual_decomp(L, tree)
 
+    # solve the primal problem
     NAmodel = non_anticipative(L,tree)
     non_anticipative_results(tree,NAmodel)
 end
@@ -244,6 +247,21 @@ function interpret_solution(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual, s
         solret[k,nodelist[K][sce],l] = sol[i]
     end
     return solret
+end
+
+function interpret_master_id(tree::DRMSMIP.Tree, LD::DD.AbstractLagrangeDual)
+    n = DD.num_coupling_variables(LD.block_model)
+    nodelist = DRMSMIP.get_stage_id(tree)
+    ret = Dict()
+    for i in 1:n
+        key = LD.block_model.coupling_variables[i].key
+        sce = key.block_id
+        root_id = key.coupling_id[1]
+        l = key.coupling_id[2]
+        k = tree.nodes[root_id].k
+        ret[k,nodelist[K][sce],l] = i
+    end
+    return ret
 end
 
 function convert_lp(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
@@ -312,16 +330,44 @@ function non_anticipative(L::Int, tree::DRMSMIP.Tree)
         for l in 1:L
             @constraint(m, x[id,K,l]==0)
         end
-        for k = 1:K
-            root = hist[k]
-            for l in 1:L
-                con_na = @constraint(m, y[id,k,l]==yp[k,root,l])
-                set_name(con_na, "con_na[$(k),$(id),$(l)]")
+        
+        #for k = 1:K
+        #    root = hist[k]
+        #    for l in 1:L
+        #        con_na = @constraint(m, y[id,k,l]==yp[k,root,l])
+        #        set_name(con_na, "con_na[$(k),$(id),$(l)]")
+        #    end
+        #    con_na = @constraint(m, B[id,k]==Bp[k,root])
+        #    set_name(con_na, "con_na[$(k),$(id),$(L+1)]")
+        #end
+        
+    end
+    leafdict = leaf2block(nodelist[K])
+
+    for k in 1:K-1
+        for root in nodelist[k]
+            leaves = DRMSMIP.get_future(tree, root)
+            for id in leaves
+                for l in 1:L
+                    con_na = @constraint(m, y[id,k,l]==yp[k,root,l])
+                    set_name(con_na, "con_na[$(k),$(id),$(l)]")
+                end
+                con_na = @constraint(m, B[id,k]==Bp[k,root])
+                set_name(con_na, "con_na[$(k),$(id),$(L+1)]")
             end
-            con_na = @constraint(m, B[id,k]==Bp[k,root])
-            set_name(con_na, "con_na[$(k),$(id),$(L+1)]")
         end
     end
+    # dummy coupling variables
+    for id in nodelist[K]
+        for l in 1:L
+            con_na = @constraint(m, y[id,K,l]==yp[K,id,l])
+            set_name(con_na, "con_na[$(K),$(id),$(l)]")
+        end
+        con_na = @constraint(m, B[id,K]==Bp[K,id])
+        set_name(con_na, "con_na[$(K),$(id),$(L+1)]")
+    end
+
+
     @objective(m, Min, - sum( Bp[K,id] + sum( tree.nodes[id].ξ[l] * yp[K,id,l] for l in 1:L)
          for id in nodelist[K] )/ length(nodelist[K]) )
     JuMP.optimize!(m)
