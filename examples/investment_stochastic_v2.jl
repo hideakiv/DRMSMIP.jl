@@ -26,7 +26,7 @@ asset2: 1.06 or 0.94
 function create_tree(K::Int, L::Int, Np::Int)::DRMSMIP.Tree
     π = ones(L)
     π_samp = generate_sample(L, π, Np)                  #igonre this for stochastic problem
-    set = DRMSMIP.WassersteinSet(π_samp, 0.0, norm_L1)  #ignore this for stochastic problem
+    set = DRMSMIP.WassersteinSet(π_samp, 0.0, DRMSMIP.norm_L1)  #ignore this for stochastic problem
     cost = zeros(L+1)                                   #ignore this for stochastic problem
     tree = DRMSMIP.Tree(π, set, cost)
     add_nodes!(K, L, tree, 1, 1, Np)
