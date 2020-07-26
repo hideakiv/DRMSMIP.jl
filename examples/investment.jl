@@ -55,7 +55,7 @@ function add_nodes!(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int, k::Int, Np::Int
         ls = iterlist(L,tree.nodes[id].ξ)
         for π in ls
             π_samp = generate_sample(L, π, Np)
-            set = DRMSMIP.WassersteinSet(π_samp, 1.0, norm_L1)
+            set = DRMSMIP.WassersteinSet(π_samp, 1.0, DRMSMIP.norm_L1)
             cost = zeros(L+1)
             DRMSMIP.addchild!(tree, id, π, set, cost)
             childid = length(tree.nodes)
