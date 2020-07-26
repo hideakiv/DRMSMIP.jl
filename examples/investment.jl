@@ -27,7 +27,7 @@ In each node, we have Np=10 samples from a log-normal distribution
 function create_tree(K::Int, L::Int, Np::Int)::DRMSMIP.Tree
     π = ones(L)
     π_samp = generate_sample(L, π, Np)
-    set = DRMSMIP.WassersteinSet(π_samp, 1.0, norm_L1)
+    set = DRMSMIP.WassersteinSet(π_samp, 1.0, DRMSMIP.norm_L1)
     cost = zeros(L+1)
     tree = DRMSMIP.Tree(π, set, cost)
     add_nodes!(K, L, tree, 1, 1, Np)
@@ -175,15 +175,6 @@ function leaf2block(nodes::Array{Int})::Dict{Int,Int}
         leafdict[id] = i
     end
     return leafdict
-end
-
-
-function norm_L1(x::Array{Float64}, y::Array{Float64})::Float64
-    val = 0
-    for i in 1:length(x)
-        val += abs(x[i] - y[i])
-    end
-    return val
 end
 
 
