@@ -4,6 +4,7 @@ using DualDecomposition
 using Random
 
 const DD = DualDecomposition
+const BM = DD.BM
 
 const rng = Random.MersenneTwister(1234)
 """
@@ -249,7 +250,8 @@ function interpret_solution(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual, s
     return solret
 end
 
-function interpret_master_id(tree::DRMSMIP.Tree, LD::DD.AbstractLagrangeDual)
+# function interpret_master_id(tree::DRMSMIP.Tree, LD::DD.AbstractLagrangeDual)
+function interpret_master_id(tree::DRMSMIP.Tree, LD)
     n = DD.num_coupling_variables(LD.block_model)
     nodelist = DRMSMIP.get_stage_id(tree)
     ret = Dict()

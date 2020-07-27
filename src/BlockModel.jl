@@ -7,7 +7,8 @@ represents a sub-block model with the information of how to couple these block
 models. 
 """
 
-mutable struct DRMS_BlockModel <: DD.AbstractBlockModel
+# mutable struct DRMS_BlockModel <: DD.AbstractBlockModel
+mutable struct DRMS_BlockModel
     model::Dict{Int,JuMP.Model} # Dictionary of block models
     coupling_variables::Vector{DD.CouplingVariableRef} # array of variables that couple block models
     variables_by_couple::Dict{Any,Vector{DD.CouplingVariableKey}} # maps `couple_id` to `CouplingVariableKey`

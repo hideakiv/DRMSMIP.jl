@@ -9,7 +9,8 @@ Lagrangian dual method for dual decomposition. This `mutable struct` constains:
 - `tree` keeps Tree information
 """
 
-mutable struct DRMS_LagrangeDual{T<:BM.AbstractMethod} <: DD.AbstractLagrangeDual
+# mutable struct DRMS_LagrangeDual{T<:BM.AbstractMethod} <: DD.AbstractLagrangeDual
+mutable struct DRMS_LagrangeDual{T<:BM.AbstractMethod}
     block_model::DRMS_BlockModel
     var_to_index::Dict{Tuple{Int,Any},Int} # maps coupling variable to the index wrt the master problem
     bundle_method
@@ -36,7 +37,8 @@ mutable struct DRMS_LagrangeDual{T<:BM.AbstractMethod} <: DD.AbstractLagrangeDua
     end
 end
 
-function DD.get_solution!(LD::DRMS_LagrangeDual, method::BM.AbstractMethod)
+# function DD.get_solution!(LD::DRMS_LagrangeDual, method::BM.AbstractMethod)
+function get_solution!(LD::DRMS_LagrangeDual, method::BM.AbstractMethod)
     LD.block_model.dual_solution = copy(BM.get_solution(method))
     bundle = BM.get_model(method)
     model = BM.get_model(bundle)
