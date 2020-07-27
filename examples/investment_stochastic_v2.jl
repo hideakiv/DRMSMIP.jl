@@ -190,6 +190,7 @@ end
 function dual_decomp(L::Int, tree::DRMSMIP.Tree)
     # Create DualDecomposition instance.
     algo = DD.LagrangeDual(BM.TrustRegionMethod)
+    #algo = DD.LagrangeDual()
 
     # Add Lagrange dual problem for each scenario s.
     nodelist = DRMSMIP.get_stage_id(tree)
