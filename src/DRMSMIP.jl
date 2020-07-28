@@ -1,6 +1,6 @@
 module DRMSMIP
 
-using JuMP, Gurobi
+using JuMP, Ipopt, Gurobi
 using DualDecomposition, BundleMethod
 
 const DD = DualDecomposition

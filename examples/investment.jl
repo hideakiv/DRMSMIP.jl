@@ -131,8 +131,8 @@ function create_scenario_model(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int)
     hist = DRMSMIP.get_history(tree, id)
     m = Model(Gurobi.Optimizer) 
     set_optimizer_attribute(m, "OutputFlag", 0)
-    #@variable(m, x[1:K,1:L], integer=true)
-    @variable(m, x[1:K,1:L])
+    @variable(m, x[1:K,1:L], integer=true)
+    #@variable(m, x[1:K,1:L])
     @variable(m, y[1:K,1:L]>=0)
     @variable(m, B[1:K]>=0)
 
@@ -230,24 +230,11 @@ function dual_decomp(L::Int, tree::DRMSMIP.Tree)
     # Set nonanticipativity variables as an array of symbols.
     DD.set_coupling_variables!(algo, coupling_variables)
 
-    bundle_init = initialize_bundle(tree, algo)
+    bundle_init = DRMSMIP.initialize_bundle(tree, algo)
 
     # Solve the problem with the solver; this solver is for the underlying bundle method.
     DD.run!(algo, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0), bundle_init)
     return algo
-end
-
-function initialize_bundle(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)::Array{Float64,1}
-    n = DD.num_coupling_variables(LD.block_model)
-    bundle_init = Array{Float64,1}(undef, n)
-    for i in 1:n
-        key = LD.block_model.coupling_variables[i].key
-        N = length(LD.block_model.variables_by_couple[key.coupling_id])
-        node_id = key.coupling_id[1]
-        l = key.coupling_id[2]
-        bundle_init[i] =  tree.nodes[node_id].cost[l] / N
-    end
-    return bundle_init
 end
 
 function dual_decomp_results(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
@@ -296,10 +283,11 @@ end
 
 function det_eq(L::Int, tree::DRMSMIP.Tree)
     m = Model(Gurobi.Optimizer) 
+    set_optimizer_attribute(m, "OutputFlag", 0)
     lenN = length(tree.nodes)
     node = tree.nodes[1]
-    #@variable(m, x[1:lenN,1:L], integer=true)
-    @variable(m, x[1:lenN,1:L])
+    @variable(m, x[1:lenN,1:L], integer=true)
+    #@variable(m, x[1:lenN,1:L])
     @variable(m, y[1:lenN,1:L]>=0)
     @variable(m, B[1:lenN]>=0)
     @variable(m, α[1:lenN]>=0)

@@ -59,15 +59,16 @@ function add_Wasserstein!(LD::DRMS_LagrangeDual, model::JuMP.Model)
     @variable(model, P[2:length(LD.tree.nodes)] >= 0)
     @variable(model, w[k=1:K-1, id=nodelist[k+1], s=1:LD.tree.nodes[get_parent(LD.tree,id)].set.N] >= 0)
     
-    con_X!(LD.tree, model, nodelist, K, LD)
-    con_E!(LD.tree, model, nodelist, K)
-    con_P!(LD.tree, model, nodelist, K)
-    con_M!(LD.tree, model, nodelist, K)
-    con_N!(LD.tree, model, nodelist, K)
+    con_X!(LD.tree, model, nodelist, LD)
+    con_E!(LD.tree, model, nodelist)
+    con_P!(LD.tree, model, nodelist)
+    con_M!(LD.tree, model, nodelist)
+    con_N!(LD.tree, model, nodelist)
 end
 
-function con_X!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int, LD::DRMS_LagrangeDual)
+function con_X!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, LD::DRMS_LagrangeDual)
     #   Lagrangian dual of nonanticipativity of x
+    K = tree.K
     λ = m[:x]
     P = m[:P]
 
@@ -94,8 +95,9 @@ function con_X!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int, LD::D
     end
 end
 
-function con_E!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int)
+function con_E!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
     #   constraints involving e
+    K = tree.K
     w = m[:w]
     P = m[:P]
 
@@ -118,8 +120,9 @@ function con_E!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int)
     end
 end
 
-function con_P!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int)
+function con_P!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
     #   constraints involving p
+    K = tree.K
     w = m[:w]
     P = m[:P]
 
@@ -144,8 +147,9 @@ function con_P!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int)
     end
 end
 
-function con_M!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int)
+function con_M!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
     #   constraints for marginal probability
+    K = tree.K
     w = m[:w]
     P = m[:P]
 
@@ -162,8 +166,9 @@ function con_M!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int)
     end
 end
 
-function con_N!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int)
+function con_N!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
     #   constraints for normalization
+    K = tree.K
     P = m[:P]
     con_n = @constraint(m,
         sum( P[child] for child in get_children(tree, 1)) == 1)
@@ -175,4 +180,47 @@ function con_N!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, K::Int)
             set_name(con_n, "con_n[$(root)]")
         end
     end
+end
+
+function initialize_bundle(tree::Tree, LD::DRMS_LagrangeDual)::Array{Float64,1}
+    n = DD.num_coupling_variables(LD.block_model)
+    bundle_init = Array{Float64,1}(undef, n)
+    K = tree.K
+    nodelist = get_stage_id(tree)
+    P = get_feasible_P(tree, nodelist)
+    for i in 1:n
+        key = LD.block_model.coupling_variables[i].key
+        N = length(LD.block_model.variables_by_couple[key.coupling_id])
+        block_id = key.block_id
+        node_id = key.coupling_id[1]
+        l = key.coupling_id[2]
+        bundle_init[i] =  tree.nodes[node_id].cost[l] / N * P[nodelist[K][block_id]]
+    end
+    return bundle_init
+end
+
+function get_feasible_P(tree::Tree, nodelist::Array{Array{Int}})::Dict{Int,Float64}
+    K = tree.K
+    model = JuMP.Model(Gurobi.Optimizer)
+    set_optimizer_attribute(model, "OutputFlag", 0)
+
+    @variable(model, P[2:length(tree.nodes)] >= 0)
+    @variable(model, w[k=1:K-1, id=nodelist[k+1], s=1:tree.nodes[get_parent(tree,id)].set.N] >= 0)
+    
+    con_E!(tree, model, nodelist)
+    con_P!(tree, model, nodelist)
+    con_M!(tree, model, nodelist)
+    con_N!(tree, model, nodelist)
+
+    @objective(model, Min, 0)
+
+    JuMP.optimize!(model)
+
+    Pref = Dict()
+    P = model[:P]
+
+    for id in 2:length(tree.nodes)
+        Pref[id] = JuMP.value(P[id])
+    end
+    return Pref
 end
