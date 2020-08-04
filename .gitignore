@@ -2,6 +2,5 @@ Manifest.toml
 .DS_Store
 *.log
 *.lp
-investment_results
-investment_stochastic_results
-investment_stochastic.jl
+**/examples
+!investment.jl

@@ -176,13 +176,13 @@ function main_comp()
     #det_eq_results(tree, DEmodel)
 
     dual_decomp(L, tree)
-    #dual_decomp_results(tree, LD)
 end
 
 
 function dual_decomp(L::Int, tree::DRMSMIP.DR_Tree)
     # Create DualDecomposition instance.
-    algo = DRMSMIP.DRMS_LagrangeDual(tree, BM.TrustRegionMethod)
+    #algo = DRMSMIP.DRMS_LagrangeDual(tree, BM.TrustRegionMethod)
+    algo = DRMSMIP.DRMS_LagrangeDual(tree)
 
     # Add Lagrange dual problem for each scenario s.
     nodelist = DD.get_stage_id(tree)
@@ -226,49 +226,6 @@ function dual_decomp(L::Int, tree::DRMSMIP.DR_Tree)
     # Solve the problem with the solver; this solver is for the underlying bundle method.
     DD.run!(algo, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0), bundle_init)
     return algo
-end
-
-function dual_decomp_results(tree::DRMSMIP.DR_Tree, LD::DRMSMIP.DRMS_LagrangeDual)
-
-    #print(LD.block_model.dual_bound)
-    #print(LD.block_model.dual_solution)
-
-    nodelist = DD.get_stage_id(tree)
-    
-    open("examples/investment_results/dual_decomp_results.csv", "w") do io
-        Pref = LD.block_model.P_solution
-        lb = 0      # objective of feasible solution
-        for s in 1:length(nodelist[K])
-            m = LD.block_model.model[s]
-            leaf = nodelist[K][s]
-
-            xref = value.(m[:x])
-            Bref = value.(m[:B])
-            yref = value.(m[:y])
-            
-            hist = DD.get_history(tree, leaf)
-            write(io, "stage, ") + sum(write(io, "$(k), ") for k in 1:K) + write(io, "\n")
-            write(io, "scenario, ") + sum(write(io, string(hist[k])*", ") for k in 1:K) + write(io, "\n")
-            write(io, "B, ") + sum(write(io, string(Bref[k])*", ") for k in 1:K) + write(io, "\n")
-            for l in 1:L
-                write(io, "π[$(l)], ") + sum(write(io, string(tree.nodes[id].ξ[l])*", ") for id in hist) + write(io, "\n")
-                write(io, "x[$(l)], ") + sum(write(io, string(xref[k,l])*", ") for k in 1:K) + write(io, "\n")
-                write(io, "y[$(l)], ") + sum(write(io, string(yref[k,l])*", ") for k in 1:K) + write(io, "\n")
-            end
-            write(io, "P, , ") + sum(write(io, string(Pref[hist[k]])*", ") for k in 2:K) + write(io, "\n")
-
-            tot = 0
-            for k in 1:K
-                tot += sum( tree.nodes[hist[k]].cost[l]*yref[k,l] for l in 1:L) + tree.nodes[hist[k]].cost[L+1]*Bref[k]
-            end
-            write(io, "total, " * string(-tot) * "\n")
-            write(io, "\n")
-            lb += -tot * Pref[hist[K]]
-        end
-        write(io, "upper bound, "*string(-LD.block_model.dual_bound)* "\n")
-        write(io, "lower bound, "*string(lb)* "\n")
-    end
-
 end
 
 
