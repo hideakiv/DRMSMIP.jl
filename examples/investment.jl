@@ -1,4 +1,4 @@
-using JuMP, Ipopt, Gurobi
+using JuMP, Ipopt, GLPK
 using DRMSMIP
 using DualDecomposition
 using Random
@@ -24,12 +24,12 @@ asset2: 1.06 or 0.94
 In each node, we have Np=10 samples from a log-normal distribution
 """
 
-function create_tree(K::Int, L::Int, Np::Int)::DRMSMIP.Tree
+function create_tree(K::Int, L::Int, Np::Int)::DRMSMIP.DR_Tree
     π = ones(L)
     π_samp = generate_sample(L, π, Np)
     set = DRMSMIP.WassersteinSet(π_samp, 1.0, DRMSMIP.norm_L1)
     cost = zeros(L+1)
-    tree = DRMSMIP.Tree(π, set, cost)
+    tree = DRMSMIP.DR_Tree(π, set, cost)
     add_nodes!(K, L, tree, 1, 1, Np)
     return tree
 end
@@ -50,14 +50,14 @@ function generate_sample(L::Int, π::Array{Float64}, Np::Int)::Array{DRMSMIP.Sam
     return ret
 end
 
-function add_nodes!(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int, k::Int, Np::Int)
+function add_nodes!(K::Int, L::Int, tree::DRMSMIP.DR_Tree, id::Int, k::Int, Np::Int)
     if k < K-1
         ls = iterlist(L,tree.nodes[id].ξ)
         for π in ls
             π_samp = generate_sample(L, π, Np)
             set = DRMSMIP.WassersteinSet(π_samp, 1.0, DRMSMIP.norm_L1)
             cost = zeros(L+1)
-            DRMSMIP.addchild!(tree, id, π, set, cost)
+            DD.addchild!(tree, id, π, set, cost)
             childid = length(tree.nodes)
             add_nodes!(K, L, tree, childid, k+1, Np)
         end
@@ -65,7 +65,7 @@ function add_nodes!(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int, k::Int, Np::Int
         ls = iterlist(L,tree.nodes[id].ξ)
         for π in ls
             cost = vcat(-π, [-1])
-            DRMSMIP.addchild!(tree, id, π, nothing, cost)
+            DD.addchild!(tree, id, π, nothing, cost)
         end
     end
 end
@@ -124,13 +124,13 @@ end
 const K = 3
 const L = 2
 const a = 0.01
-const b = [100, 30, 30]
+const b1 = 100
+const b2 = 30
 const Np = 10
 
-function create_scenario_model(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int)
-    hist = DRMSMIP.get_history(tree, id)
-    m = Model(Gurobi.Optimizer) 
-    set_optimizer_attribute(m, "OutputFlag", 0)
+function create_scenario_model(K::Int, L::Int, tree::DRMSMIP.DR_Tree, id::Int)
+    hist = DD.get_history(tree, id)
+    m = Model(GLPK.Optimizer) 
     @variable(m, x[1:K,1:L], integer=true)
     #@variable(m, x[1:K,1:L])
     @variable(m, y[1:K,1:L]>=0)
@@ -138,7 +138,7 @@ function create_scenario_model(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int)
 
     π = tree.nodes[1].ξ
 
-    con = @constraint(m, B[1] + sum( π[l] * x[1,l] for l in 1:L) == b[1])
+    con = @constraint(m, B[1] + sum( π[l] * x[1,l] for l in 1:L) == b1)
     set_name(con, "con[1]")
 
     for l in 1:L
@@ -151,7 +151,7 @@ function create_scenario_model(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int)
         ρ = tree.nodes[hist[k-1]].ξ * 0.05
 
         con = @constraint(m, B[k] + sum( π[l] * x[k,l] - ρ[l] * y[k-1,l] for l in 1:L)
-            - (1+a) * B[k-1] == b[k])
+            - (1+a) * B[k-1] == b2)
         set_name(con, "con[$(k)]")
         for l in 1:L
             bal = @constraint(m, y[k,l]-x[k,l]-y[k-1,l]==0)
@@ -168,34 +168,25 @@ function create_scenario_model(K::Int, L::Int, tree::DRMSMIP.Tree, id::Int)
     return m
 end
 
-function leaf2block(nodes::Array{Int})::Dict{Int,Int}
-    leafdict = Dict{Int,Int}()
-    for i in 1:length(nodes)
-        id = nodes[i]
-        leafdict[id] = i
-    end
-    return leafdict
-end
-
 
 function main_comp()
     tree = create_tree(K,L,Np)
 
-    DEmodel = det_eq(L, tree)
-    det_eq_results(tree, DEmodel)
+    #DEmodel = det_eq(L, tree)
+    #det_eq_results(tree, DEmodel)
 
-    LD = dual_decomp(L, tree)
-    dual_decomp_results(tree, LD)
+    dual_decomp(L, tree)
+    #dual_decomp_results(tree, LD)
 end
 
 
-function dual_decomp(L::Int, tree::DRMSMIP.Tree)
+function dual_decomp(L::Int, tree::DRMSMIP.DR_Tree)
     # Create DualDecomposition instance.
     algo = DRMSMIP.DRMS_LagrangeDual(tree, BM.TrustRegionMethod)
 
     # Add Lagrange dual problem for each scenario s.
-    nodelist = DRMSMIP.get_stage_id(tree)
-    leafdict = leaf2block(nodelist[K])
+    nodelist = DD.get_stage_id(tree)
+    leafdict = DD.leaf2block(nodelist[K])
     models = Dict{Int,JuMP.Model}(id => create_scenario_model(K,L,tree,id) for id in nodelist[K])
     for id in nodelist[K]
         DD.add_block_model!(algo, leafdict[id], models[id])
@@ -204,7 +195,7 @@ function dual_decomp(L::Int, tree::DRMSMIP.Tree)
     coupling_variables = Vector{DD.CouplingVariableRef}()
     for k in 1:K-1
         for root in nodelist[k]
-            leaves = DRMSMIP.get_future(tree, root)
+            leaves = DD.get_future(tree, root)
             for id in leaves
                 model = models[id]
                 yref = model[:y]
@@ -237,12 +228,12 @@ function dual_decomp(L::Int, tree::DRMSMIP.Tree)
     return algo
 end
 
-function dual_decomp_results(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
+function dual_decomp_results(tree::DRMSMIP.DR_Tree, LD::DRMSMIP.DRMS_LagrangeDual)
 
     #print(LD.block_model.dual_bound)
     #print(LD.block_model.dual_solution)
 
-    nodelist = DRMSMIP.get_stage_id(tree)
+    nodelist = DD.get_stage_id(tree)
     
     open("examples/investment_results/dual_decomp_results.csv", "w") do io
         Pref = LD.block_model.P_solution
@@ -255,7 +246,7 @@ function dual_decomp_results(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
             Bref = value.(m[:B])
             yref = value.(m[:y])
             
-            hist = DRMSMIP.get_history(tree, leaf)
+            hist = DD.get_history(tree, leaf)
             write(io, "stage, ") + sum(write(io, "$(k), ") for k in 1:K) + write(io, "\n")
             write(io, "scenario, ") + sum(write(io, string(hist[k])*", ") for k in 1:K) + write(io, "\n")
             write(io, "B, ") + sum(write(io, string(Bref[k])*", ") for k in 1:K) + write(io, "\n")
@@ -281,9 +272,8 @@ function dual_decomp_results(tree::DRMSMIP.Tree, LD::DRMSMIP.DRMS_LagrangeDual)
 end
 
 
-function det_eq(L::Int, tree::DRMSMIP.Tree)
-    m = Model(Gurobi.Optimizer) 
-    set_optimizer_attribute(m, "OutputFlag", 0)
+function det_eq(L::Int, tree::DRMSMIP.DR_Tree)
+    m = Model(GLPK.Optimizer) 
     lenN = length(tree.nodes)
     node = tree.nodes[1]
     @variable(m, x[1:lenN,1:L], integer=true)
@@ -297,14 +287,14 @@ function det_eq(L::Int, tree::DRMSMIP.Tree)
          + node.set.ϵ*α[1] + sum( node.set.samples[ss].p*β[1,ss] for ss in 1:node.set.N) )
 
     π = tree.nodes[1].ξ
-    @constraint(m, B[1] + sum( π[l] * x[1,l] for l in 1:L) == b[1])
+    @constraint(m, B[1] + sum( π[l] * x[1,l] for l in 1:L) == b1)
     for l in 1:L
         @constraint(m, y[1,l]-x[1,l]==0)
     end
 
     function iterate_children(id::Int)
         pnode = tree.nodes[id]
-        children = DRMSMIP.get_children(tree, id)
+        children = DD.get_children(tree, id)
         
         for child in children
             cnode = tree.nodes[child]
@@ -313,12 +303,12 @@ function det_eq(L::Int, tree::DRMSMIP.Tree)
             ρ = pnode.ξ * 0.05
 
             @constraint(m, B[child] + sum( π[l] * x[child,l] - ρ[l] * y[id,l] for l in 1:L)
-                - (1+a) * B[id] == b[cnode.k])
+                - (1+a) * B[id] == b2)
             for l in 1:L
                 @constraint(m, y[child,l]-x[child,l]-y[id,l]==0)
             end
 
-            if length(DRMSMIP.get_children(tree, child)) > 0
+            if length(DD.get_children(tree, child)) > 0
                 for s in 1:pnode.set.N
                     foo = pnode.set.norm_func(cnode.ξ, pnode.set.samples[s].ξ)
                     @constraint(m, foo*α[id] + β[id,s]
@@ -337,7 +327,7 @@ function det_eq(L::Int, tree::DRMSMIP.Tree)
         
     end
     iterate_children(1)
-    nodelist = DRMSMIP.get_stage_id(tree)
+    nodelist = DD.get_stage_id(tree)
     for id in nodelist[K]
         for l in 1:L
             @constraint(m, x[id,l]==0)
@@ -347,11 +337,11 @@ function det_eq(L::Int, tree::DRMSMIP.Tree)
     return m
 end
 
-function det_eq_results(tree::DRMSMIP.Tree, model::Model)
+function det_eq_results(tree::DRMSMIP.DR_Tree, model::Model)
     open("examples/investment_results/det_eq.lp", "w") do f
         print(f, model)
     end
-    nodelist = DRMSMIP.get_stage_id(tree)
+    nodelist = DD.get_stage_id(tree)
     
     xref = value.(model[:x])
     Bref = value.(model[:B])
@@ -363,7 +353,7 @@ function det_eq_results(tree::DRMSMIP.Tree, model::Model)
         
         for leaf in nodelist[K]
             
-            hist = DRMSMIP.get_history(tree, leaf)
+            hist = DD.get_history(tree, leaf)
             write(io, "stage, ") + sum(write(io, "$(k), ") for k in 1:K) + write(io, "\n")
             write(io, "B, ") + sum(write(io, string(Bref[id])*", ") for id in hist) + write(io, "\n")
             for l in 1:L

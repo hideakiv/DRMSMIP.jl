@@ -6,7 +6,7 @@ Lagrangian dual method for dual decomposition. This `mutable struct` constains:
 - `var_to_index` mapping coupling variable to the index wrt the master problem
 - `masiter::Int` sets the maximum number of iterations
 - `tol::Float64` sets the relative tolerance for termination
-- `tree` keeps Tree information
+- `tree` keeps DR_Tree information
 """
 
 mutable struct DRMS_LagrangeDual{T<:BM.AbstractMethod} <: DD.AbstractLagrangeDual
@@ -16,9 +16,9 @@ mutable struct DRMS_LagrangeDual{T<:BM.AbstractMethod} <: DD.AbstractLagrangeDua
     maxiter::Int # maximum number of iterations
     tol::Float64 # convergence tolerance
 
-    tree::Tree
+    tree::DR_Tree
 
-    function DRMS_LagrangeDual(tree::Tree, T = BM.ProximalMethod, 
+    function DRMS_LagrangeDual(tree::DR_Tree, T = BM.ProximalMethod, 
             maxiter::Int = 1000, tol::Float64 = 1e-6)
         LD = new{T}()
         LD.block_model = DRMS_BlockModel()
@@ -54,10 +54,10 @@ end
 
 function add_Wasserstein!(LD::DRMS_LagrangeDual, model::JuMP.Model)
     K = LD.tree.K
-    nodelist = get_stage_id(LD.tree)
+    nodelist = DD.get_stage_id(LD.tree)
 
     @variable(model, P[2:length(LD.tree.nodes)] >= 0)
-    @variable(model, w[k=1:K-1, id=nodelist[k+1], s=1:LD.tree.nodes[get_parent(LD.tree,id)].set.N] >= 0)
+    @variable(model, w[k=1:K-1, id=nodelist[k+1], s=1:LD.tree.nodes[DD.get_parent(LD.tree,id)].set.N] >= 0)
     
     con_X!(LD.tree, model, nodelist, LD)
     con_E!(LD.tree, model, nodelist)
@@ -66,7 +66,7 @@ function add_Wasserstein!(LD::DRMS_LagrangeDual, model::JuMP.Model)
     con_N!(LD.tree, model, nodelist)
 end
 
-function con_X!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, LD::DRMS_LagrangeDual)
+function con_X!(tree::DR_Tree, m::Model, nodelist::Array{Array{Int}}, LD::DRMS_LagrangeDual)
     #   Lagrangian dual of nonanticipativity of x
     K = tree.K
     λ = m[:x]
@@ -95,7 +95,7 @@ function con_X!(tree::Tree, m::Model, nodelist::Array{Array{Int}}, LD::DRMS_Lagr
     end
 end
 
-function con_E!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
+function con_E!(tree::DR_Tree, m::Model, nodelist::Array{Array{Int}})
     #   constraints involving e
     K = tree.K
     w = m[:w]
@@ -120,7 +120,7 @@ function con_E!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
     end
 end
 
-function con_P!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
+function con_P!(tree::DR_Tree, m::Model, nodelist::Array{Array{Int}})
     #   constraints involving p
     K = tree.K
     w = m[:w]
@@ -147,7 +147,7 @@ function con_P!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
     end
 end
 
-function con_M!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
+function con_M!(tree::DR_Tree, m::Model, nodelist::Array{Array{Int}})
     #   constraints for marginal probability
     K = tree.K
     w = m[:w]
@@ -166,27 +166,27 @@ function con_M!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
     end
 end
 
-function con_N!(tree::Tree, m::Model, nodelist::Array{Array{Int}})
+function con_N!(tree::DR_Tree, m::Model, nodelist::Array{Array{Int}})
     #   constraints for normalization
     K = tree.K
     P = m[:P]
     con_n = @constraint(m,
-        sum( P[child] for child in get_children(tree, 1)) == 1)
+        sum( P[child] for child in DD.get_children(tree, 1)) == 1)
     set_name(con_n, "con_n[1]")
     for k = 2:K-1
         for root in nodelist[k]
             con_n = @constraint(m,
-                sum( P[child] for child in get_children(tree, root)) == P[root])
+                sum( P[child] for child in DD.get_children(tree, root)) == P[root])
             set_name(con_n, "con_n[$(root)]")
         end
     end
 end
 
-function initialize_bundle(tree::Tree, LD::DRMS_LagrangeDual)::Array{Float64,1}
+function initialize_bundle(tree::DR_Tree, LD::DRMS_LagrangeDual)::Array{Float64,1}
     n = DD.num_coupling_variables(LD.block_model)
     bundle_init = Array{Float64,1}(undef, n)
     K = tree.K
-    nodelist = get_stage_id(tree)
+    nodelist = DD.get_stage_id(tree)
     P = get_feasible_P(tree, nodelist)
     for i in 1:n
         key = LD.block_model.coupling_variables[i].key
@@ -199,13 +199,12 @@ function initialize_bundle(tree::Tree, LD::DRMS_LagrangeDual)::Array{Float64,1}
     return bundle_init
 end
 
-function get_feasible_P(tree::Tree, nodelist::Array{Array{Int}})::Dict{Int,Float64}
+function get_feasible_P(tree::DR_Tree, nodelist::Array{Array{Int}})::Dict{Int,Float64}
     K = tree.K
-    model = JuMP.Model(Gurobi.Optimizer)
-    set_optimizer_attribute(model, "OutputFlag", 0)
+    model = JuMP.Model(GLPK.Optimizer)
 
     @variable(model, P[2:length(tree.nodes)] >= 0)
-    @variable(model, w[k=1:K-1, id=nodelist[k+1], s=1:tree.nodes[get_parent(tree,id)].set.N] >= 0)
+    @variable(model, w[k=1:K-1, id=nodelist[k+1], s=1:tree.nodes[DD.get_parent(tree,id)].set.N] >= 0)
     
     con_E!(tree, model, nodelist)
     con_P!(tree, model, nodelist)
