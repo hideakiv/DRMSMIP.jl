@@ -28,9 +28,6 @@ mutable struct DRMS_LagrangeDual{T<:BM.AbstractMethod} <: DD.AbstractLagrangeDua
         LD.tol = tol
 
         LD.tree = tree
-
-        DD.parallel.init()
-        finalizer(DD.finalize!, LD)
         
         return LD
     end
