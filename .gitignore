@@ -1,6 +1,6 @@
 .DS_Store
 *.log
 *.lp
-**/examples
+examples/*
 !investment.jl
 !investment_mpi.jl
