@@ -3,3 +3,4 @@
 *.lp
 **/examples
 !investment.jl
+!investment_mpi.jl
