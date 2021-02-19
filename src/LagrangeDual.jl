@@ -180,18 +180,25 @@ function con_N!(tree::DR_Tree, m::Model, nodelist::Array{Array{Int}})
 end
 
 function initialize_bundle(tree::DR_Tree, LD::DRMS_LagrangeDual)::Array{Float64,1}
-    n = DD.num_coupling_variables(LD.block_model)
+    n = DD.parallel.sum(DD.num_coupling_variables(LD.block_model))
     bundle_init = Array{Float64,1}(undef, n)
-    K = tree.K
-    nodelist = DD.get_stage_id(tree)
-    P = get_feasible_P(tree, nodelist)
-    for i in 1:n
-        key = LD.block_model.coupling_variables[i].key
-        N = length(LD.block_model.variables_by_couple[key.coupling_id])
-        block_id = key.block_id
-        node_id = key.coupling_id[1]
-        l = key.coupling_id[2]
-        bundle_init[i] =  tree.nodes[node_id].cost[l] / N * P[nodelist[K][block_id]]
+    variable_keys = [v.key for v in LD.block_model.coupling_variables]
+    all_variable_keys = DD.parallel.allcollect(variable_keys)
+    if DD.parallel.is_root()
+        K = tree.K
+        nodelist = DD.get_stage_id(tree)
+        P = get_feasible_P(tree, nodelist)
+        for key in all_variable_keys
+            i = LD.var_to_index[(key.block_id,key.coupling_id)]
+            N = length(LD.block_model.variables_by_couple[key.coupling_id])
+            block_id = key.block_id
+            node_id = key.coupling_id[1]
+            l = key.coupling_id[2]
+            bundle_init[i] =  tree.nodes[node_id].cost[l] / N * P[nodelist[K][block_id]]
+        end
+        DD.parallel.bcast(bundle_init)
+    else
+        bundle_init = DD.parallel.bcast(nothing)
     end
     return bundle_init
 end
