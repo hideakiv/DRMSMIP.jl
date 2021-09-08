@@ -1,13 +1,13 @@
 
 """
-DRMS_BlockModel
+DR_BlockModel
 
 Block model struture contrains a set of `JuMP.Model` objects, each of which
 represents a sub-block model with the information of how to couple these block
 models. 
 """
 
-mutable struct DRMS_BlockModel <: DD.AbstractBlockModel
+mutable struct DR_BlockModel <: DD.AbstractBlockModel
     model::Dict{Int,JuMP.Model} # Dictionary of block models
     coupling_variables::Vector{DD.CouplingVariableRef} # array of variables that couple block models
     variables_by_couple::Dict{Any,Vector{DD.CouplingVariableKey}} # maps `couple_id` to `CouplingVariableKey`
@@ -18,16 +18,22 @@ mutable struct DRMS_BlockModel <: DD.AbstractBlockModel
     P_solution::Dict{Int,Float64}
 
     # TODO: These may be available with heuristics.
-    # primal_bound::Float64
-    # primal_solution::Vector{Float64}
+    primal_bound::Float64
+    primal_solution::Dict{Int, Float64} #coupling_id : value 
+    combined_weights::Dict{Int, Float64} # block_id : value 
+    record::Dict{Any, Any}
 
-    function DRMS_BlockModel()
+    function BlockModel()
         return new(
             Dict(), 
             [],
             Dict(),
             0.0,
             [],
+            Dict(),
+            +Inf,
+            Dict(),
+            Dict(),
             Dict())
     end
 end

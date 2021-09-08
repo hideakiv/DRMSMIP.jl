@@ -16,10 +16,10 @@ struct WassersteinSet <: AbstractAmbiguitySet
     WassersteinSet(samples::Array{Sample}, ϵ::Float64, norm_func::Function) = new(samples, length(samples), ϵ, norm_func)
 end
 
-function norm_L1(x::Array{Float64}, y::Array{Float64})::Float64
+function norm_L1(ξ_1::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}, ξ_2::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}})::Float64
     val = 0
-    for i in 1:length(x)
-        val += abs(x[i] - y[i])
+    for symb in keys(ξ_1)
+        val += sum(abs.(ξ_1[symb] .- ξ_2[symb]))
     end
     return val
 end
