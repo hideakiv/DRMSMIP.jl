@@ -61,7 +61,7 @@ function DD.add_constraints!(LD::DR_LagrangeDual, method::DD.BundleMaster)
     end
 
 
-    JuMP.print(model)
+    #JuMP.print(model)
 end
 
 function sort_couple_by_label(tree::DD.Tree, variables_by_couple::Dict{Any,Vector{DD.CouplingVariableKey}})::Dict{Int,Vector{Any}}
