@@ -23,7 +23,7 @@ mutable struct DR_BlockModel <: DD.AbstractBlockModel
     combined_weights::Dict{Int, Float64} # block_id : value 
     record::Dict{Any, Any}
 
-    function BlockModel()
+    function DR_BlockModel()
         return new(
             Dict(), 
             [],

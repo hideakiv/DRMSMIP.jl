@@ -126,7 +126,7 @@ uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 
 [[DualDecomposition]]
 deps = ["BundleMethod", "JuMP", "LinearAlgebra", "MPI", "Printf", "SparseArrays"]
-git-tree-sha1 = "985803ce966d98933394c8c8a5318079a95fe2de"
+git-tree-sha1 = "c4387652f8489b65bd88b203a6527a85d8864884"
 repo-rev = "DRMS_"
 repo-url = "https://github.com/kibaekkim/DualDecomposition.jl.git"
 uuid = "d0e446f1-e135-48f1-a6ea-e9a6190f2a7a"
