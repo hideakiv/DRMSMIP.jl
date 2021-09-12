@@ -2,6 +2,5 @@
 *.log
 *.lp
 examples/*
-!investment.jl
-!investment_mpi.jl
-!drtep_storage_mpi.jl
+!investment_.jl
+*.txt
