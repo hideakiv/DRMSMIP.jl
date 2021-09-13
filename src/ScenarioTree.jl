@@ -16,7 +16,7 @@ Tree node stores information of stage problem
 mutable struct DR_TreeNode <: DD.AbstractTreeNode
     id::Int
     stage_builder::Union{Nothing,Function}
-    coupling_variables::Vector{DD.CouplingVariableRef}
+    coupling_variables::Dict{Any,Vector{DD.CouplingVariableRef}}
     parent::Int
     children::Vector{Int}
     stage::Int
