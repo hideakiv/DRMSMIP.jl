@@ -141,10 +141,17 @@ function initialize_bundle(tree::DD.Tree{DR_TreeNode}, LD::DR_LagrangeDual)::Arr
             block_id = key.block_id
             node_id = key.coupling_id[1]
             couple_id = key.coupling_id
+            """
             if DD.check_root(tree.nodes[node_id])
                 bundle_init[i] =  get_cost(tree.nodes[node_id], couple_id) / N
             else
                 bundle_init[i] =  get_cost(tree.nodes[node_id], couple_id) / N * P[node_id] #P[corresponding leaf node] ?
+            end
+            """
+            for (id, node) in tree.nodes
+                if DD.check_leaf(node)
+                    bundle_init[i] =  get_cost(tree.nodes[node_id], couple_id)* P[get_id(node)]
+                end
             end
         end
         DD.parallel.bcast(bundle_init)
