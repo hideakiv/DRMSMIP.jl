@@ -150,7 +150,7 @@ function initialize_bundle(tree::DD.Tree{DR_TreeNode}, LD::DR_LagrangeDual)::Arr
             """
             for (id, node) in tree.nodes
                 if DD.check_leaf(node)
-                    bundle_init[i] =  get_cost(tree.nodes[node_id], couple_id)* P[get_id(node)]
+                    bundle_init[i] =  get_cost(tree.nodes[node_id], couple_id)* P[DD.get_id(node)]
                 end
             end
         end
