@@ -18,6 +18,7 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
     subobj_value::Vector{Float64}
     master_time::Vector{Float64}
 
+    dh::Union{Nothing, DD.DataHelper}
     tree::DD.Tree{DR_TreeNode} # TODO: abstraction to non-tree problem
 
     function DR_LagrangeDual(tree::DD.Tree{DR_TreeNode})
@@ -30,6 +31,7 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
         LD.subobj_value = []
         LD.master_time = []
 
+        LD.dh = nothing
         LD.tree = tree #
         
         return LD
