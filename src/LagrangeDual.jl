@@ -86,13 +86,13 @@ function add_non_anticipativity!(LD::DR_LagrangeDual, m::JuMP.Model, node::DR_Tr
         for couple_id in couple_ids
             vars = LD.block_model.variables_by_couple[couple_id]
             name = join(string.(couple_id), ", ")
-            @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == get_cost(node, couple_id), base_name = name)
+            @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == -get_cost(node, couple_id), base_name = name)
         end
     else
         for couple_id in couple_ids
             vars = LD.block_model.variables_by_couple[couple_id]
             name = join(string.(couple_id), ", ")
-            @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == get_cost(node, couple_id) * P[DD.get_id(node)], base_name = name)
+            @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == -get_cost(node, couple_id) * P[DD.get_id(node)], base_name = name)
         end
     end
 end
@@ -145,14 +145,14 @@ function initialize_bundle(tree::DD.Tree{DR_TreeNode}, LD::DR_LagrangeDual)::Arr
             couple_id = key.coupling_id
             """
             if DD.check_root(tree.nodes[node_id])
-                bundle_init[i] =  get_cost(tree.nodes[node_id], couple_id) / N
+                bundle_init[i] =  -get_cost(tree.nodes[node_id], couple_id) / N
             else
-                bundle_init[i] =  get_cost(tree.nodes[node_id], couple_id) / N * P[node_id] #P[corresponding leaf node] ?
+                bundle_init[i] =  -get_cost(tree.nodes[node_id], couple_id) / N * P[node_id] #P[corresponding leaf node] ?
             end
             """
             for (id, node) in tree.nodes
                 if DD.check_leaf(node)
-                    bundle_init[i] =  get_cost(tree.nodes[node_id], couple_id)* P[DD.get_id(node)]
+                    bundle_init[i] =  -get_cost(tree.nodes[node_id], couple_id)* P[DD.get_id(node)]
                 end
             end
         end
