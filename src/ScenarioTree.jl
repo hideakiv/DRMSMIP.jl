@@ -163,16 +163,36 @@ function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVaria
     end
 end
 
-function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, var::JuMP.VariableRef)
+function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, 
+        var::JuMP.VariableRef)
     if haskey(subnode.cost, var)
-        push!(coupling_variables, CouplingVariableRef(block_id, [label, symb], var))
+        push!(coupling_variables, DD.CouplingVariableRef(block_id, [label, symb], var))
     end
 end
 
-function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, vars::AbstractArray{JuMP.VariableRef})
-    for key in eachindex(vars)
-        if haskey(subnode.cost, vars[key])
-            push!(coupling_variables, CouplingVariableRef(block_id, [label, symb, key], vars[key]))
+function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, 
+        vars::Array{JuMP.VariableRef})
+    for (index, value) in pairs(vars)
+        if haskey(subnode.cost, value)
+            push!(coupling_variables, DD.CouplingVariableRef(block_id, [label, symb, Tuple(index)], value))
+        end
+    end
+end
+
+function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, 
+    vars::JuMP.Containers.DenseAxisArray{JuMP.VariableRef})
+    for (index, value) in pairs(vars.data)
+        if haskey(subnode.cost, value)
+            push!(coupling_variables, DD.CouplingVariableRef(block_id, [label, symb, keys(vars)[index].I], value))
+        end
+    end
+end
+
+function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, 
+    vars::JuMP.Containers.SparseAxisArray{JuMP.VariableRef})
+    for (index, value) in vars.data
+        if haskey(subnode.cost, value)
+            push!(coupling_variables, DD.CouplingVariableRef(block_id, [label, symb, index], value))
         end
     end
 end

@@ -126,7 +126,7 @@ uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 
 [[DualDecomposition]]
 deps = ["BundleMethod", "JuMP", "LinearAlgebra", "MPI", "Printf", "SparseArrays"]
-git-tree-sha1 = "5c984ea11b95b462bd5df3c2eb76e9a4de285d74"
+git-tree-sha1 = "9a6e2d6b3f71e2498a79942e1b8166b7c0504f71"
 repo-rev = "BnB"
 repo-url = "/Users/hnakao/.julia/dev/DualDecomposition"
 uuid = "d0e446f1-e135-48f1-a6ea-e9a6190f2a7a"
