@@ -129,7 +129,7 @@ function create_nodes!(tree::DD.Tree, pt::Int)
             cost = Dict{Any, Float64}()
             cost[[length(tree.nodes) + 1, :B]] = -1.0
             for l in 1:L
-                cost[[length(tree.nodes) + 1, :y, l]] = -π[l]
+                cost[[length(tree.nodes) + 1, :y, (l,)]] = -π[l]
             end
             id = DD.add_child!(tree, pt, ξ, nothing, cost)
         end
@@ -221,6 +221,8 @@ parallel.partition(NS)
 
 coupling_variables = Vector{DD.CouplingVariableRef}()
 models = Dict{Int,JuMP.Model}()
+
+algo.dh = DD.DataHelper(".")
 
 for block_id in parallel.getpartition()
     nodes = node_cluster[block_id]

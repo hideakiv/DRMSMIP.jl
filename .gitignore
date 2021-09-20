@@ -5,3 +5,4 @@ examples/*
 !investment_.jl
 *.txt
 /Manifest.toml
+*.csv
