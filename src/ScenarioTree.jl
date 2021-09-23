@@ -23,10 +23,10 @@ mutable struct DR_TreeNode <: DD.AbstractTreeNode
     ξ::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}
 
     set::Union{AbstractAmbiguitySet, Nothing}
-    cost::Dict{Any, Float64}
+    cost::Dict{String, Float64}
 
     function DR_TreeNode(id::Int, parent::Int, stage::Int, ξ::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}, 
-            set::Union{AbstractAmbiguitySet, Nothing}, cost::Dict{Any, Float64})
+            set::Union{AbstractAmbiguitySet, Nothing})
         tn = new()
         tn.id = id
         tn.stage_builder = nothing
@@ -36,32 +36,65 @@ mutable struct DR_TreeNode <: DD.AbstractTreeNode
         tn.stage = stage
         tn.ξ = ξ
         tn.set = set
-        tn.cost = cost
+        tn.cost = Dict{Any, Float64}()
         return tn
     end
 end
 
-function DR_TreeNode(ξ::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}, set::AbstractAmbiguitySet, cost::Dict{Any, Float64})
-    return DR_TreeNode(1, 0, 1, ξ, set, cost)
+function DR_TreeNode(ξ::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}, set::AbstractAmbiguitySet)
+    return DR_TreeNode(1, 0, 1, ξ, set)
 end
 
 get_set(node::DR_TreeNode) = node.set
-get_cost(node::DR_TreeNode, var_id::Any) = haskey(node.cost, var_id) ? node.cost[var_id] : 0.0
-function set_cost!(node::DR_TreeNode, var_id::Any, coeff::Float64)
+get_cost(node::DR_TreeNode, var_id::Any) = node.cost[var_id]
+function set_cost!(node::DR_TreeNode, var_id::String, coeff::Float64)
     node.cost[var_id] = coeff
 end
 
+function DD.set_stage_builder!(node::DR_TreeNode, func::Function)
+    node.stage_builder = func
+    dummynode = DD.SubTreeNode(node, 1.0)
 
-function DD.Tree(ξ::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}, set::AbstractAmbiguitySet, cost::Dict{Any, Float64})
-    return DD.Tree(Dict{Int,DR_TreeNode}(1 => DR_TreeNode(ξ, set, cost)))
+    func(JuMP.Model(), dummynode)
+
+    label = DD.get_id(node)
+    if dummynode.obj isa JuMP.AffExpr
+        terms = dummynode.obj.terms
+
+        for (ref, var) in dummynode.out
+            name = "n$(label)_" * ref
+            if haskey(terms, var)
+                set_cost!(node, name, terms[var])
+            else
+                set_cost!(node, name, 0.0)
+            end
+        end
+
+        for (ref, var) in dummynode.control
+            name = "n$(label)_" * ref
+            if haskey(terms, var)
+                set_cost!(node, name, terms[var])
+            end
+        end
+    else
+        for (ref, var) in dummynode.out
+            name = "n$(label)_" * ref
+            set_cost!(node, name, 0.0)
+        end
+    end
 end
 
-function DD.add_child!(tree::DD.Tree{DR_TreeNode}, pt::Int, ξ::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}, set::Union{AbstractAmbiguitySet, Nothing}, cost::Dict{Any, Float64})::Int
+
+function DD.Tree(ξ::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}, set::AbstractAmbiguitySet)
+    return DD.Tree(Dict{Int,DR_TreeNode}(1 => DR_TreeNode(ξ, set)))
+end
+
+function DD.add_child!(tree::DD.Tree{DR_TreeNode}, pt::Int, ξ::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}, set::Union{AbstractAmbiguitySet, Nothing})::Int
     #   adds child node to tree.nodes[pt]
     @assert haskey(tree.nodes, pt)                                  # check if pt is valid
     stage = DD.get_stage(tree, pt) + 1                                 # get new stage value
     id = length(tree.nodes) + 1                                     # get node id
-    DD.add_node!(tree, DR_TreeNode(id, pt, stage, ξ, set, cost ))            # create node and add to tree
+    DD.add_node!(tree, DR_TreeNode(id, pt, stage, ξ, set ))            # create node and add to tree
     push!(DD.get_children(tree, pt), id)                               # push id to parent node children
     return id
 end
@@ -94,25 +127,21 @@ function create_Wasserstein_deterministic!(tree::DD.Tree{DR_TreeNode})
 
     obj = 0
     for (id, subnode) in subtree.nodes
-        subnode.treenode.stage_builder(tree, subtree, subnode) # make macro for changing variable names and constraint names to include node id
+        subnode.treenode.stage_builder(subtree.model, subnode)
+        DD.unregister_all!(subtree.model)
 
         node = subnode.treenode
-        if length(subnode.cost) == 0
-            cost = 0.0
-        else
-            cost = sum(coeff * var for (var, coeff) in subnode.cost)
-        end
         if DD.check_root(subnode)
             next_set = get_set(node)
-            obj += cost + next_set.ϵ * lα__[id] + sum(next_set.samples[s].p * lβ__[id,s] for s = 1:next_set.N )
+            obj += subnode.obj + next_set.ϵ * lα__[id] + sum(next_set.samples[s].p * lβ__[id,s] for s = 1:next_set.N )
         elseif DD.check_leaf(subnode)
             this_set = get_set(tree, DD.get_parent(node))
-            @constraint(subtree.model, [s=1:this_set.N], this_set.norm_func(this_set.samples[s].ξ, node.ξ) * lα__[DD.get_parent(node)] + lβ__[DD.get_parent(node), s] >= cost)
+            @constraint(subtree.model, [s=1:this_set.N], this_set.norm_func(this_set.samples[s].ξ, node.ξ) * lα__[DD.get_parent(node)] + lβ__[DD.get_parent(node), s] >= subnode.obj)
         else
             this_set = get_set(tree, DD.get_parent(node))
             next_set = get_set(node)
             @constraint(subtree.model, [s=1:this_set.N], this_set.norm_func(this_set.samples[s].ξ, node.ξ) * lα__[DD.get_parent(node)] + lβ__[DD.get_parent(node), s] >= 
-                                                            cost + next_set.ϵ * lα__[id] + sum(next_set.samples[s].p * lβ__[id,s] for s = 1:next_set.N) )
+                                                            subnode.obj + next_set.ϵ * lα__[id] + sum(next_set.samples[s].p * lβ__[id,s] for s = 1:next_set.N) )
         end
     end
     JuMP.set_objective(subtree.model, MOI.MIN_SENSE, obj)
@@ -127,7 +156,7 @@ function create_Wasserstein_deterministic!(tree::DD.Tree{DR_TreeNode})
     return subtree
 end
 
-function DD.create_subtree!(tree::DD.Tree{DR_TreeNode}, block_id::Int, coupling_variables::Vector{DD.CouplingVariableRef}, nodes::Vector{DR_TreeNode})::DD.SubTree
+function DD.create_subtree!(block_id::Int, coupling_variables::Vector{DD.CouplingVariableRef}, nodes::Vector{DR_TreeNode})::DD.SubTree
     subtree = DD.SubTree(block_id)
     # add nodes to subtree
     for node in nodes
@@ -136,7 +165,8 @@ function DD.create_subtree!(tree::DD.Tree{DR_TreeNode}, block_id::Int, coupling_
     end
 
     for (id, subnode) in subtree.nodes
-        subnode.treenode.stage_builder(tree, subtree, subnode) # make macro for changing variable names and constraint names to include node id
+        subnode.treenode.stage_builder(subtree.model, subnode)
+        DD.unregister_all!(subtree.model)
     end
     JuMP.set_objective_sense(subtree.model, MOI.MIN_SENSE)
 
@@ -158,41 +188,12 @@ end
 
 function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode)
     label = DD.get_id(subnode)
-    for (symb, var) in subnode.control
-        couple_variables_with_cost!(coupling_variables, block_id, subnode, label, symb, var)
-    end
-end
-
-function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, 
-        var::JuMP.VariableRef)
-    if haskey(subnode.cost, var)
-        push!(coupling_variables, DD.CouplingVariableRef(block_id, [label, symb], var))
-    end
-end
-
-function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, 
-        vars::Array{JuMP.VariableRef})
-    for (index, value) in pairs(vars)
-        if haskey(subnode.cost, value)
-            push!(coupling_variables, DD.CouplingVariableRef(block_id, [label, symb, Tuple(index)], value))
-        end
-    end
-end
-
-function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, 
-    vars::JuMP.Containers.DenseAxisArray{JuMP.VariableRef})
-    for (index, value) in pairs(vars.data)
-        if haskey(subnode.cost, value)
-            push!(coupling_variables, DD.CouplingVariableRef(block_id, [label, symb, keys(vars)[index].I], value))
-        end
-    end
-end
-
-function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode, label, symb, 
-    vars::JuMP.Containers.SparseAxisArray{JuMP.VariableRef})
-    for (index, value) in vars.data
-        if haskey(subnode.cost, value)
-            push!(coupling_variables, DD.CouplingVariableRef(block_id, [label, symb, index], value))
+    for (ref, var) in subnode.control
+        if subnode.obj isa JuMP.AffExpr
+            terms = subnode.obj.terms
+            if haskey(terms, var)
+                DD.couple_variables!(coupling_variables, block_id, label, ref, var)
+            end
         end
     end
 end

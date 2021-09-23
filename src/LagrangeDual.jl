@@ -18,7 +18,6 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
     subobj_value::Vector{Float64}
     master_time::Vector{Float64}
 
-    dh::Union{Nothing, DD.DataHelper}
     tree::DD.Tree{DR_TreeNode} # TODO: abstraction to non-tree problem
 
     function DR_LagrangeDual(tree::DD.Tree{DR_TreeNode})
@@ -31,7 +30,6 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
         LD.subobj_value = []
         LD.master_time = []
 
-        LD.dh = nothing
         LD.tree = tree #
         
         return LD
@@ -72,7 +70,8 @@ function sort_couple_by_label(tree::DD.Tree, variables_by_couple::Dict{Any,Vecto
         node_to_couple[id] = Vector{Any}()
     end
     for (couple_id, keys) in variables_by_couple
-        node_id = couple_id[1]
+        loc = findfirst(x -> x=='_', couple_id)
+        node_id = parse(Int, couple_id[2:loc-1])
         push!(node_to_couple[node_id], couple_id)
     end
     return node_to_couple
@@ -140,9 +139,10 @@ function initialize_bundle(tree::DD.Tree{DR_TreeNode}, LD::DR_LagrangeDual)::Arr
         for key in all_variable_keys
             i = LD.var_to_index[(key.block_id,key.coupling_id)]
             N = length(LD.block_model.variables_by_couple[key.coupling_id])
-            block_id = key.block_id
-            node_id = key.coupling_id[1]
             couple_id = key.coupling_id
+
+            loc = findfirst(x -> x=='_', couple_id)
+            node_id = parse(Int, couple_id[2:loc-1])
             
             if DD.check_root(tree.nodes[node_id])
                 bundle_init[i] =  get_cost(tree.nodes[node_id], couple_id) / N

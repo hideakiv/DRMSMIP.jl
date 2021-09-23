@@ -79,21 +79,15 @@ function create_nodes()::DD.Tree
     ξ = Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}(:π => ones(L))
     ξ_samp = generate_sample(ξ[:π])
     set = DRMSMIP.WassersteinSet(ξ_samp, 1.0, DRMSMIP.norm_L1)
-    cost = Dict{Any, Float64}()
-    tree = DD.Tree(ξ, set, cost)
+    tree = DD.Tree(ξ, set)
 
     #subproblem formulation
-    function subproblem_builder(tree::DD.Tree, subtree::DD.SubTree, node::DD.SubTreeNode)
-        mdl = subtree.model
-        #x = @variable(mdl, x[l=1:L], Int, base_name="n1_x")
-        x = @variable(mdl, x[l=1:L], base_name="n1_x")
-        DD.set_control_variable!(node, :x, x)
+    function subproblem_builder(mdl::JuMP.Model, node::DD.SubTreeNode)
+        @variable(mdl, x[l=1:L], DD.ControlInfo, subnode = node, ref_symbol = :x)
 
-        y = @variable(mdl, y[l=1:L] >= 0, base_name="n1_y")
-        DD.set_output_variable!(node, :y, y)
+        @variable(mdl, y[l=1:L] >= 0, DD.OutStateInfo, subnode = node, ref_symbol = :y)
 
-        B = @variable(mdl, B >= 0, base_name="n1_B")
-        DD.set_output_variable!(node, :B, B)
+        @variable(mdl, B >= 0, DD.OutStateInfo, subnode = node, ref_symbol = :B)
 
         π = DD.get_scenario(node)[:π]
         @constraints(mdl, 
@@ -102,10 +96,7 @@ function create_nodes()::DD.Tree
                 [l=1:L], y[l] - x[l] == 0 
             end
         )
-
-        JuMP.unregister(mdl, :x)
-        JuMP.unregister(mdl, :y)
-        JuMP.unregister(mdl, :B)
+        DD.set_stage_objective(node, 0.0)
     end
 
     DD.set_stage_builder!(tree, 1, subproblem_builder)
@@ -123,37 +114,23 @@ function create_nodes!(tree::DD.Tree, pt::Int)
         if DD.get_stage(tree, pt) != K-1
             ξ_samp = generate_sample(ξ[:π])
             set = DRMSMIP.WassersteinSet(ξ_samp, 1.0, DRMSMIP.norm_L1)
-            cost = Dict{Any, Float64}()
-            id = DD.add_child!(tree, pt, ξ, set, cost)
+            id = DD.add_child!(tree, pt, ξ, set)
         else 
-            cost = Dict{Any, Float64}()
-            cost[[length(tree.nodes) + 1, :B]] = -1.0
-            for l in 1:L
-                cost[[length(tree.nodes) + 1, :y, (l,)]] = -π[l]
-            end
-            id = DD.add_child!(tree, pt, ξ, nothing, cost)
+            id = DD.add_child!(tree, pt, ξ, nothing)
         end
         
 
         #subproblem formulation
-        function subproblem_builder(tree::DD.Tree, subtree::DD.SubTree, node::DD.SubTreeNode)
-            mdl = subtree.model
-            id = DD.get_id(node)
-            #x = @variable(mdl, x[l=1:L], Int, base_name = "n$(id)_x")
-            x = @variable(mdl, x[l=1:L], base_name = "n$(id)_x")
-            DD.set_control_variable!(node, :x, x)
+        function subproblem_builder(mdl::JuMP.Model, node::DD.SubTreeNode)
+            @variable(mdl, x[l=1:L], DD.ControlInfo, subnode = node, ref_symbol = :x)
 
-            y = @variable(mdl, y[l=1:L] >= 0, base_name = "n$(id)_y")
-            DD.set_output_variable!(node, :y, y)
+            @variable(mdl, y[l=1:L] >= 0, DD.OutStateInfo, subnode = node, ref_symbol = :y)
 
-            B = @variable(mdl, B >= 0, base_name = "n$(id)_B")
-            DD.set_output_variable!(node, :B, B)
+            @variable(mdl, B >= 0, DD.OutStateInfo, subnode = node, ref_symbol = :B)
 
-            y_ = @variable(mdl, y_[l=1:L] >= 0, base_name = "n$(id)_y_")
-            DD.set_input_variable!(node, :y, y_)
+            @variable(mdl, y_[l=1:L] >= 0, DD.InStateInfo, subnode = node, ref_symbol = :y)
 
-            B_ = @variable(mdl, B_ >= 0, base_name = "n$(id)_B_")
-            DD.set_input_variable!(node, :B, B_)
+            @variable(mdl, B_ >= 0, DD.InStateInfo, subnode = node, ref_symbol = :B)
 
             π = DD.get_scenario(node)[:π]
             pt = DD.get_parent(node)
@@ -165,17 +142,11 @@ function create_nodes!(tree::DD.Tree, pt::Int)
             #dummy bound for input variables to avoid subproblem unboundedness
             @constraint(mdl, [l=1:L], y_[l] <= 500)
             @constraint(mdl, B_ <= 500)
-            if DD.get_stage(node) == K
-                DD.set_cost_coefficient(node, B, -1.0)
-                for l in 1:L
-                    DD.set_cost_coefficient(node, y[l], -π[l])
-                end
+            if DD.get_stage(node) < K
+                DD.set_stage_objective(node, 0.0)
+            else
+                DD.set_stage_objective(node, -(B + sum( π[l] * y[l] for l in 1:L )))
             end
-            JuMP.unregister(mdl, :x)
-            JuMP.unregister(mdl, :y)
-            JuMP.unregister(mdl, :B)
-            JuMP.unregister(mdl, :y_)
-            JuMP.unregister(mdl, :B_)
         end
 
         DD.set_stage_builder!(tree, id, subproblem_builder)
@@ -222,11 +193,9 @@ parallel.partition(NS)
 coupling_variables = Vector{DD.CouplingVariableRef}()
 models = Dict{Int,JuMP.Model}()
 
-algo.dh = DD.DataHelper(".")
-
 for block_id in parallel.getpartition()
     nodes = node_cluster[block_id]
-    subtree = DD.create_subtree!(tree, block_id, coupling_variables, nodes)
+    subtree = DD.create_subtree!(block_id, coupling_variables, nodes)
     set_optimizer(subtree.model, GLPK.Optimizer)
     DD.add_block_model!(algo, block_id, subtree.model)
     models[block_id] = subtree.model
@@ -237,9 +206,9 @@ DD.set_coupling_variables!(algo, coupling_variables)
 
 bundle_init = DRMSMIP.initialize_bundle(tree, algo)
 #println(bundle_init)
-#for (id, node) in tree.nodes
+# for (id, node) in tree.nodes
 #    println(node.cost)
-#end
+# end
 
 # Lagrange master method
 LM = DD.BundleMaster(BM.ProximalMethod, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
