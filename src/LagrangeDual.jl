@@ -18,9 +18,9 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
     subobj_value::Vector{Float64}
     master_time::Vector{Float64}
 
-    tree::DD.Tree{DR_TreeNode} # TODO: abstraction to non-tree problem
+    tree::Union{Nothing,DD.Tree{DR_TreeNode}}
 
-    function DR_LagrangeDual(tree::DD.Tree{DR_TreeNode})
+    function DR_LagrangeDual()
         LD = new()
         LD.block_model = DR_BlockModel()
         LD.var_to_index = Dict()
@@ -30,10 +30,16 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
         LD.subobj_value = []
         LD.master_time = []
 
-        LD.tree = tree #
+        LD.tree = nothing
         
         return LD
     end
+end
+
+function DR_LagrangeDual(tree::DD.Tree{DR_TreeNode})
+    LD = DR_LagrangeDual()
+    DD.add_tree!(LD, tree)
+    return LD
 end
 
 function DD.get_solution!(LD::DR_LagrangeDual, method::BM.AbstractMethod)

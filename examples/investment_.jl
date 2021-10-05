@@ -211,8 +211,8 @@ bundle_init = DRMSMIP.initialize_bundle(tree, algo)
 # end
 
 # Lagrange master method
-LM = DD.BundleMaster(BM.ProximalMethod, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
-#LM = DD.BundleMaster(BM.TrustRegionMethod, GLPK.Optimizer)
+#LM = DD.BundleMaster(BM.ProximalMethod, optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
+LM = DD.BundleMaster(BM.TrustRegionMethod, GLPK.Optimizer)
 
 # Solve the problem with the solver; this solver is for the underlying bundle method.
 DD.run!(algo, LM, bundle_init)

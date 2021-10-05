@@ -126,8 +126,8 @@ uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 
 [[DualDecomposition]]
 deps = ["BundleMethod", "JuMP", "LinearAlgebra", "MPI", "Printf", "SparseArrays"]
-git-tree-sha1 = "4dfa56f0eca7d958d9502dbbdd92e9dcd5bc42c5"
-repo-rev = "DRMS_"
+git-tree-sha1 = "8accfe2ca25e211cbab2ba029fad122a5bc1c712"
+repo-rev = "Primal"
 repo-url = "/Users/hnakao/.julia/dev/DualDecomposition"
 uuid = "d0e446f1-e135-48f1-a6ea-e9a6190f2a7a"
 version = "0.3.1"

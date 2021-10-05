@@ -153,6 +153,8 @@ function create_Wasserstein_deterministic!(tree::DD.Tree{DR_TreeNode})
             DD.add_links!(subtree, id, parent)
         end
     end
+
+    subtree.nodelabels = sort!(collect(keys(subtree.nodes)))
     return subtree
 end
 
@@ -183,6 +185,8 @@ function DD.create_subtree!(block_id::Int, coupling_variables::Vector{DD.Couplin
         end
         couple_variables_with_cost!(coupling_variables, block_id, subnode)
     end
+
+    subtree.nodelabels = sort!(collect(keys(subtree.nodes)))
     return subtree
 end
 
