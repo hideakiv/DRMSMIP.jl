@@ -90,14 +90,12 @@ function add_non_anticipativity!(LD::DR_LagrangeDual, m::JuMP.Model, node::DR_Tr
     if DD.check_root(node)
         for couple_id in couple_ids
             vars = LD.block_model.variables_by_couple[couple_id]
-            name = join(string.(couple_id), ", ")
-            @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == get_cost(node, couple_id), base_name = name)
+            @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == get_cost(node, couple_id), base_name = couple_id)
         end
     else
         for couple_id in couple_ids
             vars = LD.block_model.variables_by_couple[couple_id]
-            name = join(string.(couple_id), ", ")
-            @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == get_cost(node, couple_id) * P[DD.get_id(node)], base_name = name)
+            @constraint(m, sum(λ[DD.index_of_λ(LD, v)] for v in vars) == get_cost(node, couple_id) * P[DD.get_id(node)], base_name = couple_id)
         end
     end
 end

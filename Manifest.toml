@@ -29,7 +29,7 @@ version = "0.5.10"
 
 [[BundleMethod]]
 deps = ["JuMP", "LinearAlgebra", "Printf", "SparseArrays"]
-git-tree-sha1 = "02e7fe1aeed849943c7d9af129bec4f2cf523767"
+path = "/Users/hnakao/.julia/dev/BundleMethod"
 uuid = "e8a6717a-069f-43d5-9ac2-a49b1ec5be7b"
 version = "0.3.2"
 
