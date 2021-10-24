@@ -20,6 +20,7 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
 
     tree::Union{Nothing,DD.Tree{DR_TreeNode}}
     subtrees::Union{Nothing,Dict{Int,DD.SubTree}}
+    P_model::Union{Nothing, JuMP.Model}
 
     function DR_LagrangeDual()
         LD = new()
@@ -32,6 +33,8 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
         LD.master_time = []
 
         LD.tree = nothing
+        LD.subtrees = nothing
+        LD.P_model = nothing
         
         return LD
     end
@@ -133,13 +136,13 @@ function add_ambiguity_link!(m::JuMP.Model, node::DR_TreeNode, set::WassersteinS
     end
 end
 
-function initialize_bundle(tree::DD.Tree{DR_TreeNode}, LD::DR_LagrangeDual)::Array{Float64,1}
+function initialize_bundle(tree::DD.Tree{DR_TreeNode}, LD::DR_LagrangeDual, Optimizer=nothing)::Array{Float64,1}
     n = DD.parallel.sum(DD.num_coupling_variables(LD.block_model))
     bundle_init = Array{Float64,1}(undef, n)
     variable_keys = [v.key for v in LD.block_model.coupling_variables]
     all_variable_keys = DD.parallel.allcollect(variable_keys)
     if DD.parallel.is_root()
-        P = get_feasible_P(tree)
+        P = get_feasible_P(tree, LD, Optimizer)
         #println(P)
         for key in all_variable_keys
             i = LD.var_to_index[(key.block_id,key.coupling_id)]
@@ -169,8 +172,11 @@ function initialize_bundle(tree::DD.Tree{DR_TreeNode}, LD::DR_LagrangeDual)::Arr
     return bundle_init
 end
 
-function get_feasible_P(tree::DD.Tree{DR_TreeNode})::Dict{Int,Float64}
-    model = JuMP.Model(GLPK.Optimizer)
+function get_feasible_P(tree::DD.Tree{DR_TreeNode}, LD::DR_LagrangeDual, Optimizer)::Dict{Int,Float64}
+    if isnothing(Optimizer)
+        model = JuMP.Model(GLPK.Optimizer)
+    else
+        model = JuMP.Model(Optimizer)
 
     @variable(model, P[2:length(tree.nodes)] >= 0)
     for (id, node) in tree.nodes
@@ -182,6 +188,7 @@ function get_feasible_P(tree::DD.Tree{DR_TreeNode})::Dict{Int,Float64}
 
     @objective(model, Min, 0)
 
+    LD.P_model = model
     JuMP.optimize!(model)
     #JuMP.print(model)
 
