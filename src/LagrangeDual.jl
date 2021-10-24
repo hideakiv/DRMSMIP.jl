@@ -19,6 +19,7 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
     master_time::Vector{Float64}
 
     tree::Union{Nothing,DD.Tree{DR_TreeNode}}
+    subtrees::Union{Nothing,Array{DD.SubTree}}
 
     function DR_LagrangeDual()
         LD = new()
