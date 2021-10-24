@@ -177,6 +177,7 @@ function get_feasible_P(tree::DD.Tree{DR_TreeNode}, LD::DR_LagrangeDual, Optimiz
         model = JuMP.Model(GLPK.Optimizer)
     else
         model = JuMP.Model(Optimizer)
+    end
 
     @variable(model, P[2:length(tree.nodes)] >= 0)
     for (id, node) in tree.nodes
