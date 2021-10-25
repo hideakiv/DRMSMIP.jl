@@ -18,7 +18,7 @@ mutable struct DR_LagrangeDual <: DD.AbstractLagrangeDual
     subobj_value::Vector{Float64}
     master_time::Vector{Float64}
 
-    dh::Union{Nothing, DataHelper}
+    dh::Union{Nothing, DD.DataHelper}
 
     tree::Union{Nothing,DD.Tree{DR_TreeNode}}
     subtrees::Union{Nothing,Dict{Int,DD.SubTree}}
