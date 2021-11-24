@@ -51,38 +51,6 @@ function set_cost!(node::DR_TreeNode, var_id::String, coeff::Float64)
     node.cost[var_id] = coeff
 end
 
-function DD.set_stage_builder!(node::DR_TreeNode, func::Function)
-    node.stage_builder = func
-    dummynode = DD.SubTreeNode(node, 1.0)
-
-    func(JuMP.Model(), dummynode)
-
-    label = DD.get_id(node)
-    if dummynode.obj isa JuMP.AffExpr
-        terms = dummynode.obj.terms
-
-        for (ref, var) in dummynode.out
-            name = "n$(label)_" * ref
-            if haskey(terms, var)
-                set_cost!(node, name, terms[var])
-            else
-                set_cost!(node, name, 0.0)
-            end
-        end
-
-        for (ref, var) in dummynode.control
-            name = "n$(label)_" * ref
-            if haskey(terms, var)
-                set_cost!(node, name, terms[var])
-            end
-        end
-    else
-        for (ref, var) in dummynode.out
-            name = "n$(label)_" * ref
-            set_cost!(node, name, 0.0)
-        end
-    end
-end
 
 
 function DD.Tree(ξ::Dict{Symbol, Union{Float64,<:AbstractArray{Float64}}}, set::AbstractAmbiguitySet)
@@ -164,13 +132,18 @@ function DD.create_subtree!(block_id::Int, coupling_variables::Vector{DD.Couplin
     for node in nodes
         subnode = DD.SubTreeNode(node, 1.0) # dummy weight
         DD.add_node!(subtree, subnode)
+        label = DD.get_id(node)
+        set_cost!(node, "n$(label)_" * "cobj", 1.0)
     end
-
+    obj = 0
     for (id, subnode) in subtree.nodes
         subnode.treenode.stage_builder(subtree.model, subnode)
+        @variable(subtree.model, cobj, DD.ControlInfo, subnode = subnode, ref_symbol = :cobj)
+        @constraint(subtree.model, cobj == subnode.obj)
+        obj += cobj
         DD.unregister_all!(subtree.model)
     end
-    JuMP.set_objective_sense(subtree.model, MOI.MIN_SENSE)
+    JuMP.set_objective(subtree.model, MOI.MIN_SENSE, obj)
 
     # 
     for (id, subnode) in subtree.nodes
@@ -183,23 +156,16 @@ function DD.create_subtree!(block_id::Int, coupling_variables::Vector{DD.Couplin
             subtree.root = id
             DD.couple_incoming_variables!(coupling_variables, block_id, subnode)
         end
-        couple_variables_with_cost!(coupling_variables, block_id, subnode)
+        couple_objective!(coupling_variables, block_id, subnode)
     end
 
     subtree.nodelabels = sort!(collect(keys(subtree.nodes)))
     return subtree
 end
 
-function couple_variables_with_cost!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode)
+function couple_objective!(coupling_variables::Vector{DD.CouplingVariableRef}, block_id::Int, subnode::DD.SubTreeNode)
     label = DD.get_id(subnode)
-    for (ref, var) in subnode.control
-        if subnode.obj isa JuMP.AffExpr
-            terms = subnode.obj.terms
-            if haskey(terms, var)
-                DD.couple_variables!(coupling_variables, block_id, label, ref, var)
-            end
-        end
-    end
+    DD.couple_variables!(coupling_variables, block_id, label, "cobj", subnode.control["cobj"])
 end
 
 """
